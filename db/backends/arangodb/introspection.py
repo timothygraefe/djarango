@@ -25,15 +25,6 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
 
         return table_list
 
-    def get_table(self, cursor, table_name):
-        # Do not remove 'cursor' from the method signature; it is used within
-        # a 'with' scope, which depends on invoking the '__enter__', and '__exit__'
-        # methods to work properly.
-
-        # Get the entire list, since ArangoDB driver grabs the full list anyway.
-        collections = self.connection.Database.adb.collections()
-        return collections[table_name]
-
     def get_table_description(self, cursor, table_name):
         # Do not remove 'cursor'; see note above.
 
@@ -113,17 +104,8 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                 print(f"  indexes: {indexes}")
         return tl
 
-    def get_collection_docs(self, table_name, verbose = False):
-        # Fetch all records from the specified table.
-        coll = self.get_table_description(self.connection._adbcursor, table_name)
-        coll = self.connection.Database.adb[table_name]
-        if coll == None:
-            logger.debug(f"get_collection_docs() failed for: {table_name}")
-            return None
-
-        count = coll.count()
-        logger.debug(f"get_collection_docs() returning {count} documents from: {table_name}")
-        return coll.all()
+    def get_collection_docs(self, name, verbose = False):
+        return self.connection.Database.get_collection_docs(name)
 
     # copied from dummy/base.py - indicates items that need to be implemented
     get_relations   = complain

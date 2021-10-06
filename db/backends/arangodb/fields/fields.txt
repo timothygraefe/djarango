@@ -1,0 +1,1584 @@
+#
+# Edge field definitions to enable nodes and edges in ArangoDB
+"""
+    This class implements the "Edge" Field definition for Django model classes.
+    The Edge field definition is used to create vertex and edge models in a
+    graph database backend for Django.  This is implemented for ArangoDB only.
+    The model does not currently support other graph DB backends.
+
+    There is no explicit field to support ArangoDB 'vertex' objects in Djarango.
+    Instead, every Django model in Djarango is implicitly an ArangoDB vertex.
+    In ArangoDB, everything is stored as a document at the lowest level.  Other
+    ArangoDB storage paradigms are built on top of documents.  The Djarango
+    integration stores all models as documents in ADB, so by default they are
+    also candidates to be
+    vertices.  When an edge field is added to any model, the model is then
+    treated as a vertex.  In the ArangoDB backend, the collection for that
+    model becomes a vertex collection, and an edge collection is created for the
+    edge field that has been added to the model.  A graph is also created for
+    the model and edge collections, and they are also added to the graph.  By
+    convention, Djarango generates a name for the graph based on the model that
+    contains the
+    edge fields.  This may be overridden by setting 'graph_name' in the edge
+    field definition.  Multiple edge definitions may be added to the same graph.
+
+    Djarango only allows 'outbound' edge fields.  An inbound edge is created
+    by default on the model specified as the other end of the edge.  Bidirectional
+    edges may be created by adding edge fields to both models and specifying
+    the same edge name.
+
+    Edge definitions are identified by name, and each edge definition name
+    within a model must be unique.
+
+    There is no direct example in Django documentation to create this type
+    of Field definition.  It is probably closest to the ManyToManyField, but
+    does not require actual creation of a 'through' table.  I have pasted
+    some basic examples below.
+
+    From Django documentation:
+        - need to be able to do things like this with the EdgeField:
+            #
+            example = MyModel.objects.get(pk=1)
+            print(example.hand.north) # bridge hand example
+            # ...
+            new_model = MyModel()
+            new_model.hand = some_hand
+            new_model.save() # saves all model fields, including 'hand'
+
+        -- key point -- Django fields are stored as normal Python objects in the
+            attribute members of the model class.  The field class definitions are
+            actually stored in the Meta class when the model class is created.
+
+        -- two classes typically created for a model field:
+            Class 1: Python object that users manipulate; assign it to the model
+            attribute and read from it for display purposes (e.g., Edge() class); in
+            this case, the Edge class is likely just a string that stores the name of
+            the edge collection.  Or should it be a dict that stores the name of
+            the edge collection, vertex collection, and graph?.
+            > actually, this may need to be the _key attribute for the relevant
+              edge collection
+
+            Class 2: Field subclass; this class knows how to convert the first class
+            back and forth between its permanent storage and the Python form.  E.g.,
+            EdgeField() class.
+            > This class provides the machinery for converting between Python
+              instances and backend DB storage.
+
+        -- writing the Field subclass (my main job):
+            > need to create __init__() and deconstruct() methods for the
+              subclass:
+              __init__()    - separate subclass-specific parameters and pass the
+                              rest to super
+
+              deconstruct() - used by model migrations to tell Django how to
+                              take an instance of the (edge) field and reduce it
+                              to a serialized form --- specify args to pass to
+                              __init__() to recreate the field (seems like the
+                              opposite of deconstruct...)
+
+        -- the base Field class __init__() method takes the following parameters:
+            verbose_name
+            name
+            primary_key
+            max_length
+            unique
+            blank
+            null
+            db_index
+            rel: Used for related fields (like ForeignKey). For advanced use only.
+            default
+            editable
+            serialize: If False, the field will not be serialized when the model
+                is passed to Django’s serializers. Defaults to True.
+            unique_for_date
+            unique_for_month
+            unique_for_year
+            choices
+            help_text
+            db_column
+            db_tablespace: Only for index creation, if the backend supports
+                tablespaces. You can usually ignore this option.
+            auto_created: True if the field was automatically created, as for
+                the OneToOneField used by model inheritance. For advanced use only.
+
+            Ones I care about:
+                name    : need to create the edge collection based on this name.
+                rel     : not sure if I care about this or not - guess it may
+                          be the model on the other end of the edge ?
+                auto_created : might need to use this for edge collection model
+
+        -- document the new field:
+            1) provide a docstring
+            2) add desc to django.contrib.admindocs
+
+        -- db_type() and rel_db_type()
+            "CREATE TABLE"
+                These are called when Django constructs "CREATE TABLE" statements.
+                Typically they would need to know the type for the column(s) to be created.
+                This is not likely to matter with ArangoDB (NoSQL) for the edge field case.
+            "WHERE"
+                These are also called during "WHERE" clause processing to retrieve
+                records from the DB for models that include these fields.  This
+                is likely to be needed for the edge field case.
+            rel_db_type() used by ForeignKey and OneToOneField  to determine their
+                column db types.
+            db_type/rel_db_type can return None, which allows the field model to do more
+                complex SQL generation.
+
+        -- from_db_value() and to_python()
+            If edge Field has data structures more complex than strings, integers, etc.,
+            then may need to override these methods.
+
+            from_db_value() called in all cases when data is loaded from the DB,
+                including within aggregates (?) and values() calls.
+
+            to_python() called by deserialization and during clean() method with forms
+                This method must be able to handle the following arguments properly:
+                1) The correct type (e.g., Edge class)
+                2) A string
+                3) None
+
+                Note the example later in this file, copied from Django.
+
+    In the general case, each model field maps to a DB column type.  The edge field case is
+    a bit different, in that the field does not directly map to a single column.
+    Instead, the edge field definition triggers the creation of an edge collection
+    (effectively a new table), that includes the Model collection as either a
+    source or target vertex collection (or both).  The edge collection is created
+    with from_ and to_ attributes, as are all ArangoDB edge collections.
+
+    Djarango does not support explicit creation of 'graph' models; they are only
+    created implicitly via the edge field definition.  Djarango does provide
+    utilities for querying and displaying all graphs that have been generated by
+    the addition of edge fields to various models.
+
+    Each edge field added to a model class definition must specify the model
+    (vertex collection) on the other end of the edge.
+
+    Djarango only allows outbound edges.  Inbound edges by definition are the
+    other end of an outbound edge definition.  This avoids the possibility of
+    mis-matched inbound/outbound/both edge definitions.
+
+    Djarango uses a 'through' model as the edge model.  The attributes stored in the
+    model may have any of the existing Django field attributes, but may not include
+    other edge attributes (maybe in a future version?)
+
+
+    >>> What I think the EdgeField() needs to do:
+    - migration
+      > A model with edge fields should result in the generation of all the
+        relevant collections (tables) when migration runs.  Includes:
+        . Edge collection definition
+        . Source vertex collection
+        . Target vertex collection
+      > The edge collection should have source and target vertex collections
+        specified as src/dst models
+        . Example:
+            {            '_key': 'g_general_javamatan',
+                          '_id': '_graphs/g_general_javamatan',
+                         '_rev': '_dBzWpT----',
+              'edgeDefinitions': [ { 'collection': 'ged_general_javamatan',
+                                           'from': ['gv_general_javamatan'],
+                                             'to': ['gv_general_javamatan']}
+                                 ],
+            'orphanCollections': ['gvtx_general_javamatan']
+            }
+        . Summary of contents:
+            1)  name of the graph
+            2)  list of edge definitions
+            3)  orphan collections
+        . Summary of what should be generated by migration
+            1)  An edge definition based on the model with the edge field and
+                the model specified as the 'edge_model' or 'through' table
+                1) collection name for the edge collection
+                2) list of 'from' vertex collections; if this is the first time
+                   the edge definition has been used, it will create the first
+                   vertex collection in the list
+                3) list of 'to' vertex collections; same as point (2) above
+
+            2)  A graph definition containing the edge definition.  If a name is
+                given for the graph, then use that name, and add the ED to the graph
+                if it already exists.  If no graph name is given, generate a default
+                graph name.
+
+            ED parameters
+            1)  Other end model name - mandator - must correspond to a real model
+                (lazy binding allowed)
+            2)  An edge definition name - optional - this is the 'through'
+                model name.  If no name is given, generate a default name.
+            3)  A graph name - optional
+
+
+      > the name of the edge collection should be automatically, unless specified
+        by the user, via 'through' keyword.  If the 'through' keyword is used, then
+        Djarango should use the model specified as the edge collection model.
+        Initially, I think it is not a good idea to allow edges on models within
+        edge collections, even though I think ArangoDB supports it.  Djarango
+        should detect this case during migration and either generate an error or
+        warning.
+      > in ArangoDB, there is an edge collection for each direction.  In Djarango
+        there should be an edge model for each direction, but it should be allowed
+        to use the same model as the reverse direction, but it must refer to
+        separate, distinct edge collections in ArangoDB.
+      > self-referential edges should not be allowed
+
+    - writing
+      > when actual models (vertices) are connected it should create new records
+        in the edge collection
+      > when a specific instance of a dst model is added to a specific instance
+        of the src model and save()'d, the edge collection should be updated
+        with a new record (with each instance of the relevant models on each end
+        of the record).
+    - reading
+      > when the edge field is referenced, it should read the far end of the edge.
+      > there should be accessors for the edge model and the far end model.
+
+    - querying
+      > The primary value of adding graph models as a backend DB is to support
+        graph DB algorithms for queries and processing (e.g., ML to identify
+        networks and patterns).
+
+    NOTES ON MAKEMIGRATIONS
+    - autodetector.py does primary work of detecting new/deleted models and model changes
+    - models with a FK relationship have a 'remote_field' attribute that holds info
+      about the FK target.
+
+    - classdef:
+        :::::  Object instance   :::::
+
+          class ManyToManyRel(type): members=5 methods=15 built-ins=27
+
+          ManyToManyRel members:
+            get_related_field
+            (4 hidden members)
+
+          ManyToManyRel methods:
+            delete_cached_value
+            get_accessor_name
+            get_cache_name
+            get_cached_value
+            get_choices
+            get_extra_restriction
+            get_internal_type
+            get_joining_columns
+            get_lookup
+            get_path_info
+            get_related_field
+            is_cached
+            is_hidden
+            set_cached_value
+            set_field_name
+            (0 hidden methods)
+            (27 hidden built-ins)
+
+
+        :::::  Class definition  :::::
+
+          class Distribution(ModelBase): members=12 methods=47 built-ins=28
+
+          Distribution members:
+            DoesNotExist
+            MultipleObjectsReturned
+            id
+            notes
+            coffees_id
+            coffees
+            stores_id
+            stores
+            objects
+            (3 hidden members)
+
+          Distribution methods:
+            DoesNotExist
+            MultipleObjectsReturned
+            check
+            clean
+            clean_fields
+            date_error_message
+            delete
+            from_db
+            full_clean
+            get_deferred_fields
+            prepare_database_save
+            refresh_from_db
+            save
+            save_base
+            serializable_value
+            unique_error_message
+            validate_unique
+            (30 hidden methods)
+            (28 hidden built-ins)
+
+(Pdb) p field_name
+'ad'
+(Pdb) p old_field
+<django.db.models.fields.related.ForeignKey: ad>
+(Pdb) p old_field.remote_field
+<ManyToOneRel: testdb.rfp>
+(Pdb) p old_field.remote_field.auto_created
+True
+(Pdb)
+
+
+
+"""
+#
+#
+
+
+import django.db.models.field.RelatedField
+
+
+# EdgeField class; based on ManyToManyField implementation.
+
+class EdgeField(RelatedField):
+    """
+    Provide a graph edge relation by using an intermediary model that
+    provides an edge definition.
+
+    Unless a ``through`` model was provided, EdgeField will use the
+    create_edge_intermediary_model factory to automatically generate
+    the intermediary edge model.
+    """
+
+    # Field flags
+    many_to_many = True
+    many_to_one = False
+    one_to_many = False
+    one_to_one = False
+
+    rel_class = EdgeRel
+    description = _("ArangoDB Edge field definition")
+
+    # 'to' is the model on the other end of the edge.
+    # 'through' is the name of the edge model
+    # 'related_name' is the name of an accessor that will be added to the 'to'
+    #       model to provide access to attributes that are part of that model
+
+    def __init__(self, to, related_name=None, related_query_name=None,
+                 limit_choices_to=None, symmetrical=None, through=None,
+                 through_fields=None, db_constraint=True, db_table=None,
+                 swappable=True, **kwargs):
+        try:
+            to._meta
+        except AttributeError:
+            assert isinstance(to, str), (
+                "%s(%r) is invalid. First parameter to EdgeField must be "
+                "either a model, a model name" %
+                (self.__class__.__name__, to)
+            )
+
+        assert symmetrical is None, ("Edge models cannot be symmetric")
+#       assert db_table is None, ("Edge models cannot link to a table")
+
+        if through is not None:
+            assert db_table is None, (
+                "Cannot specify a db_table if an intermediary model is used."
+            )
+
+        graph_name = kwargs['graph_name'] or model_name + other_end + edge_name
+
+        kwargs['rel'] = self.rel_class(
+            self, to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+            symmetrical=false,
+            through=through,
+            through_fields=None,
+            db_constraint=None,
+        )
+        self.has_null_arg = 'null' in kwargs
+
+        super().__init__(**kwargs)
+
+        self.db_table = db_table
+        self.swappable = swappable
+
+    def check(self, **kwargs):
+        return [
+            *super().check(**kwargs),
+            *self._check_unique(**kwargs),
+            *self._check_relationship_model(**kwargs),
+            *self._check_ignored_options(**kwargs),
+            *self._check_table_uniqueness(**kwargs),
+        ]
+
+    def deconstruct(self):
+        # Return a tuple of 4 items:
+        #   field's attribute name (handled by base class)
+        #   full import path of the field class (handled by base class)
+        #   positional arguments (as a list)
+        #   keyword arguments (as a dict)
+        # It must be possible to pass these arguments into __init__() to
+        # reconstruct the object with identical state.
+        # Check model migrations to verify this works as expected.
+        # Can write unit tests that run deconstruct() --> __init__(), e.g.:
+"""
+        name, path, args, kwargs = my_field_instance.deconstruct()
+        new_instance = MyField(*args, **kwargs)
+        self.assertEqual(my_field_instance.some_attribute,
+                         new_field_instance.some_attribute)
+"""
+        name, path, args, kwargs = super().deconstruct()
+        # Handle the simpler arguments.
+        if self.db_table is not None:
+            kwargs['db_table'] = self.db_table
+        if self.remote_field.db_constraint is not True:
+            kwargs['db_constraint'] = self.remote_field.db_constraint
+        # Rel needs more work.
+        if isinstance(self.remote_field.model, str):
+            kwargs['to'] = self.remote_field.model
+        else:
+            kwargs['to'] = "%s.%s" % (
+                self.remote_field.model._meta.app_label,
+                self.remote_field.model._meta.object_name,
+            )
+        if getattr(self.remote_field, 'through', None) is not None:
+            if isinstance(self.remote_field.through, str):
+                kwargs['through'] = self.remote_field.through
+            elif not self.remote_field.through._meta.auto_created:
+                kwargs['through'] = "%s.%s" % (
+                    self.remote_field.through._meta.app_label,
+                    self.remote_field.through._meta.object_name,
+                )
+
+        # TTG don't think this should be here ...
+        # If swappable is True, then see if we're actually pointing to the target
+        # of a swap.
+        swappable_setting = self.swappable_setting
+        if swappable_setting is not None:
+            # If it's already a settings reference, error.
+            if hasattr(kwargs['to'], "setting_name"):
+                if kwargs['to'].setting_name != swappable_setting:
+                    raise ValueError(
+                        "Cannot deconstruct a ManyToManyField pointing to a "
+                        "model that is swapped in place of more than one model "
+                        "(%s and %s)" % (kwargs['to'].setting_name, swappable_setting)
+                    )
+
+            kwargs['to'] = SettingsReference(
+                kwargs['to'],
+                swappable_setting,
+            )
+
+        return name, path, args, kwargs
+
+    def db_check(self, connection):
+        return None
+
+    def db_type(self, connection):
+        # This indicates the type of the data to be stored in the DB, e.g.:
+        # 'datetime' or 'timestamp' - not applicable for NoSQL DB like ArangoDB.
+        # Similar to ManyToManyField the edge is not represented by a single
+        # column, so return None.
+        return None
+
+    def rel_db_type(self, connection):
+        # As above.
+        return None
+
+    def db_parameters(self, connection):
+        return {"type": None, "check": None}
+
+    def check(self, **kwargs):
+        return [
+            *super().check(**kwargs),
+            *self._check_unique(**kwargs),
+            *self._check_relationship_model(**kwargs),
+            *self._check_ignored_options(**kwargs),
+            *self._check_table_uniqueness(**kwargs),
+        ]
+
+    def _check_unique(self, **kwargs):
+        if self.unique:
+            return [
+                checks.Error(
+                    'EdgeFields cannot be unique.',
+                    obj=self,
+                    id='fields.E330',
+                )
+            ]
+        return []
+
+    def _check_ignored_options(self, **kwargs):
+        warnings = []
+
+        if self.has_null_arg:
+            warnings.append(
+                checks.Warning(
+                    'null has no effect on EdgeField.',
+                    obj=self,
+                    id='fields.W340',
+                )
+            )
+
+        if self._validators:
+            warnings.append(
+                checks.Warning(
+                    'EdgeField does not support validators.',
+                    obj=self,
+                    id='fields.W341',
+                )
+            )
+
+        if (self.remote_field.limit_choices_to and self.remote_field.through and
+                not self.remote_field.through._meta.auto_created):
+            warnings.append(
+                checks.Warning(
+                    'limit_choices_to has no effect on EdgeField '
+                    'with a through model.',
+                    obj=self,
+                    id='fields.W343',
+                )
+            )
+
+        return warnings
+
+    # Extensive checking on destination and through models here.  This was
+    # copied from ManyToManyField and is likely to be useful in most cases.
+    def _check_relationship_model(self, from_model=None, **kwargs):
+        if hasattr(self.remote_field.through, '_meta'):
+            qualified_model_name = "%s.%s" % (
+                self.remote_field.through._meta.app_label, self.remote_field.through.__name__)
+        else:
+            qualified_model_name = self.remote_field.through
+
+        errors = []
+
+        if self.remote_field.through not in self.opts.apps.get_models(include_auto_created=True):
+            # The relationship model is not installed.
+            errors.append(
+                checks.Error(
+                    "Field specifies a edge relation through model "
+                    "'%s', which has not been installed." % qualified_model_name,
+                    obj=self,
+                    id='fields.E331',
+                )
+            )
+
+        else:
+            assert from_model is not None, (
+                "EdgeField with intermediate "
+                "tables cannot be checked if you don't pass the model "
+                "where the field is attached to."
+            )
+            # Set some useful local variables
+            to_model = resolve_relation(from_model, self.remote_field.model)
+            from_model_name = from_model._meta.object_name
+            if isinstance(to_model, str):
+                to_model_name = to_model
+            else:
+                to_model_name = to_model._meta.object_name
+            relationship_model_name = self.remote_field.through._meta.object_name
+            self_referential = from_model == to_model
+
+            # Check symmetrical attribute.
+            # Symmetrical Edge is not currently supported.
+            if (self_referential and self.remote_field.symmetrical and
+                    not self.remote_field.through._meta.auto_created):
+                errors.append(
+                    checks.Error(
+                        'Edge fields must not be symmetrical.',
+                        obj=self,
+                        id='fields.E332',
+                    )
+                )
+
+            # Count foreign keys in intermediate model
+            if self_referential:
+                seen_self = sum(
+                    from_model == getattr(field.remote_field, 'model', None)
+                    for field in self.remote_field.through._meta.fields
+                )
+
+                if seen_self > 2 and not self.remote_field.through_fields:
+                    errors.append(
+                        checks.Error(
+                            "The model is used as an intermediate model by "
+                            "'%s', but it has more than two edge keys "
+                            "to '%s', which is ambiguous. You must specify "
+                            "which two edge keys Django should use via the "
+                            "through_fields keyword argument." % (self, from_model_name),
+                            hint="Use through_fields to specify which two foreign keys Django should use.",
+                            obj=self.remote_field.through,
+                            id='fields.E333',
+                        )
+                    )
+
+            else:
+                # Count foreign keys in relationship model
+                seen_from = sum(
+                    from_model == getattr(field.remote_field, 'model', None)
+                    for field in self.remote_field.through._meta.fields
+                )
+                seen_to = sum(
+                    to_model == getattr(field.remote_field, 'model', None)
+                    for field in self.remote_field.through._meta.fields
+                )
+
+                if seen_from > 1 and not self.remote_field.through_fields:
+                    errors.append(
+                        checks.Error(
+                            ("The model is used as an intermediate model by "
+                             "'%s', but it has more than one edge key "
+                             "from '%s', which is ambiguous. You must specify "
+                             "which edge key Django should use via the "
+                             "through_fields keyword argument.") % (self, from_model_name),
+                            hint=(
+                                'If you want to create a recursive relationship, '
+                                'use EdgeField("self", symmetrical=False, through="%s").'
+                            ) % relationship_model_name,
+                            obj=self,
+                            id='fields.E334',
+                        )
+                    )
+
+                if seen_to > 1 and not self.remote_field.through_fields:
+                    errors.append(
+                        checks.Error(
+                            "The model is used as an intermediate model by "
+                            "'%s', but it has more than one edge key "
+                            "to '%s', which is ambiguous. You must specify "
+                            "which edge key Django should use via the "
+                            "through_fields keyword argument." % (self, to_model_name),
+                            hint=(
+                                'If you want to create a recursive relationship, '
+                                'use ForeignKey("self", symmetrical=False, through="%s").'
+                            ) % relationship_model_name,
+                            obj=self,
+                            id='fields.E335',
+                        )
+                    )
+
+                if seen_from == 0 or seen_to == 0:
+                    errors.append(
+                        checks.Error(
+                            "The model is used as an intermediate model by "
+                            "'%s', but it does not have a edge key to '%s' or '%s'." % (
+                                self, from_model_name, to_model_name
+                            ),
+                            obj=self.remote_field.through,
+                            id='fields.E336',
+                        )
+                    )
+
+        # Validate `through_fields`.
+        if self.remote_field.through_fields is not None:
+            # Validate that we're given an iterable of at least two items
+            # and that none of them is "falsy".
+            if not (len(self.remote_field.through_fields) >= 2 and
+                    self.remote_field.through_fields[0] and self.remote_field.through_fields[1]):
+                errors.append(
+                    checks.Error(
+                        "Field specifies 'through_fields' but does not provide "
+                        "the names of the two link fields that should be used "
+                        "for the relation through model '%s'." % qualified_model_name,
+                        hint="Make sure you specify 'through_fields' as through_fields=('field1', 'field2')",
+                        obj=self,
+                        id='fields.E337',
+                    )
+                )
+
+            # Validate the given through fields -- they should be actual
+            # fields on the through model, and also be foreign keys to the
+            # expected models.
+            else:
+                assert from_model is not None, (
+                    "EdgeField with intermediate "
+                    "tables cannot be checked if you don't pass the model "
+                    "where the field is attached to."
+                )
+
+                source, through, target = from_model, self.remote_field.through, self.remote_field.model
+                source_field_name, target_field_name = self.remote_field.through_fields[:2]
+
+                for field_name, related_model in ((source_field_name, source),
+                                                  (target_field_name, target)):
+
+                    possible_field_names = []
+                    for f in through._meta.fields:
+                        if hasattr(f, 'remote_field') and getattr(f.remote_field, 'model', None) == related_model:
+                            possible_field_names.append(f.name)
+                    if possible_field_names:
+                        hint = "Did you mean one of the following foreign keys to '%s': %s?" % (
+                            related_model._meta.object_name,
+                            ', '.join(possible_field_names),
+                        )
+                    else:
+                        hint = None
+
+                    try:
+                        field = through._meta.get_field(field_name)
+                    except exceptions.FieldDoesNotExist:
+                        errors.append(
+                            checks.Error(
+                                "The intermediary model '%s' has no field '%s'."
+                                % (qualified_model_name, field_name),
+                                hint=hint,
+                                obj=self,
+                                id='fields.E338',
+                            )
+                        )
+                    else:
+                        if not (hasattr(field, 'remote_field') and
+                                getattr(field.remote_field, 'model', None) == related_model):
+                            errors.append(
+                                checks.Error(
+                                    "'%s.%s' is not a foreign key to '%s'." % (
+                                        through._meta.object_name, field_name,
+                                        related_model._meta.object_name,
+                                    ),
+                                    hint=hint,
+                                    obj=self,
+                                    id='fields.E339',
+                                )
+                            )
+
+        return errors
+
+    def _check_table_uniqueness(self, **kwargs):
+        if isinstance(self.remote_field.through, str) or not self.remote_field.through._meta.managed:
+            return []
+        registered_tables = {
+            model._meta.db_table: model
+            for model in self.opts.apps.get_models(include_auto_created=True)
+            if model != self.remote_field.through and model._meta.managed
+        }
+        edge_db_table = self.edge_db_table()
+        model = registered_tables.get(edge_db_table)
+        # The second condition allows multiple edge relations on a model if
+        # some point to a through model that proxies another through model.
+        if model and model._meta.concrete_model != self.remote_field.through._meta.concrete_model:
+            if model._meta.auto_created:
+                def _get_field_name(model):
+                    for field in model._meta.auto_created._meta.many_to_many:
+                        if field.remote_field.through is model:
+                            return field.name
+                opts = model._meta.auto_created._meta
+                clashing_obj = '%s.%s' % (opts.label, _get_field_name(model))
+            else:
+                clashing_obj = model._meta.label
+            return [
+                checks.Error(
+                    "The field's intermediary table '%s' clashes with the "
+                    "table name of '%s'." % (edge_db_table, clashing_obj),
+                    obj=self,
+                    id='fields.E340',
+                )
+            ]
+        return []
+
+
+    def cast_db_type(self, connection):
+#       if self.max_length is None:
+#           return connection.ops.cast_char_field_without_max_length
+        return super().cast_db_type(connection)
+
+    def get_internal_type(self):
+        return "EdgeField"
+
+    def to_python(self, value):
+        if isinstance(value, str) or value is None:
+            return value
+        return str(value)
+
+    def get_prep_value(self, value):
+        value = super().get_prep_value(value)
+        return self.to_python(value)
+
+    def NO_formfield(self, **kwargs):
+        # In general, there should not be a formfield associated with an EdgeField.
+        # This method should raise an exception if it is included in a form.
+        defaults = { 'edge_attribute': self.edge_attribute }
+        if self.null and not connection.features.edge_relevant_feature:
+            defaults['empty_value'] = None
+        defaults.update(kwargs)
+        return super().formfield(**defaults)
+
+
+class EdgeRel(ForeignObjectRel):
+    """
+    Used by EdgeField to store information about the edge relation.
+
+    ``_meta.get_fields()`` returns this class to provide access to the field
+    flags for the reverse relation.
+    """
+
+    def __init__(self, field, to, related_name=None, related_query_name=None,
+                 limit_choices_to=None, symmetrical=True, through=None,
+                 through_fields=None, db_constraint=True):
+        super().__init__(
+            field, to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+        )
+
+        if through and not db_constraint:
+            raise ValueError("Can't supply a through model and db_constraint=False")
+        self.through = through
+
+        if through_fields and not through:
+            raise ValueError("Cannot specify through_fields without a through model")
+        self.through_fields = through_fields
+
+        self.symmetrical = symmetrical
+        self.db_constraint = db_constraint
+
+    def get_related_field(self):
+        """
+        Return the field in the 'to' object to which this relationship is tied.
+        Provided for symmetry with ManyToOneRel.
+        """
+        opts = self.through._meta
+        if self.through_fields:
+            field = opts.get_field(self.through_fields[0])
+        else:
+            for field in opts.fields:
+                rel = getattr(field, 'remote_field', None)
+                if rel and rel.model == self.model:
+                    break
+        return field.foreign_related_fields[0]
+
+
+################################################################################
+# Examples from djang.db.models.fields
+################################################################################
+class CharField(Field):
+    description = _("String (up to %(max_length)s)")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.validators.append(validators.MaxLengthValidator(self.max_length))
+
+    def check(self, **kwargs):
+        return [ *super().check(**kwargs), *self._check_max_length_attribute(**kwargs), ]
+
+    def _check_max_length_attribute(self, **kwargs):
+        if self.max_length is None:
+            return [
+                checks.Error(
+                    "CharFields must define a 'max_length' attribute.",
+                    obj=self,
+                    id='fields.E120',
+                )
+            ]
+        elif (not isinstance(self.max_length, int) or isinstance(self.max_length, bool) or
+                self.max_length <= 0):
+            return [
+                checks.Error(
+                    "'max_length' must be a positive integer.",
+                    obj=self,
+                    id='fields.E121',
+                )
+            ]
+        else:
+            return []
+
+    def cast_db_type(self, connection):
+        if self.max_length is None:
+            return connection.ops.cast_char_field_without_max_length
+        return super().cast_db_type(connection)
+
+    def get_internal_type(self):
+        return "CharField"
+
+    def to_python(self, value):
+        if isinstance(value, str) or value is None:
+            return value
+        return str(value)
+
+    def get_prep_value(self, value):
+        value = super().get_prep_value(value)
+        return self.to_python(value)
+
+    def formfield(self, **kwargs):
+        # Passing max_length to forms.CharField means that the value's length
+        # will be validated twice. This is considered acceptable since we want
+        # the value in the form field (to pass into widget for example).
+        defaults = {'max_length': self.max_length}
+        # TODO: Handle multiple backends with different feature flags.
+        if self.null and not connection.features.interprets_empty_strings_as_nulls:
+            defaults['empty_value'] = None
+        defaults.update(kwargs)
+        return super().formfield(**defaults)
+
+
+class CommaSeparatedIntegerField(CharField):
+    default_validators = [validators.validate_comma_separated_integer_list]
+    description = _("Comma-separated integers")
+    system_check_removed_details = {
+        'msg': (
+            'CommaSeparatedIntegerField is removed except for support in '
+            'historical migrations.'
+        ),
+        'hint': (
+            'Use CharField(validators=[validate_comma_separated_integer_list]) '
+            'instead.'
+        ),
+        'id': 'fields.E901',
+    }
+
+################################################################################
+# Example from Django documentation for from_db_value() and to_python()
+################################################################################
+
+def parse_hand(hand_string):
+    """Takes a string of cards and splits into a full hand."""
+    p1 = re.compile('.{26}')
+    p2 = re.compile('..')
+    args = [p2.findall(x) for x in p1.findall(hand_string)]
+    if len(args) != 4:
+        raise ValidationError(_("Invalid input for a Hand instance"))
+    return Hand(*args)
+
+class HandField(models.Field):
+    # ...
+
+    def from_db_value(self, value, expression, connection):
+        if value is None:
+            return value
+        return parse_hand(value)
+
+    def to_python(self, value):
+        if isinstance(value, Hand):
+            return value
+
+        if value is None:
+            return value
+
+        return parse_hand(value)
+
+
+"""
+    Mis-matched edge definition example:
+        ModelA.edge('ModelB', dir='outbound', name='atob')
+        ModelB.edge('ModelA', dir='inbound', name='atoc')
+        # This would create 2 separate edge collections from a to b, but
+        # only one was intended.  If the names were correct, then one of the
+        # edge definitions becomes completely redundant, and a possible source
+        # of errors.  It the names were correct but directions were
+        # incorrect (e.g., ModelB has direction of 'both'), then the results
+        # may be difficult to correctly generate.
+"""
+
+
+
+################################################################################
+# Copied from django.db.models.fields
+################################################################################
+class ManyToManyField(RelatedField):
+    """
+    Provide a many-to-many relation by using an intermediary model that
+    holds two ForeignKey fields pointed at the two sides of the relation.
+
+    Unless a ``through`` model was provided, ManyToManyField will use the
+    create_many_to_many_intermediary_model factory to automatically generate
+    the intermediary model.
+    """
+
+    # Field flags
+    many_to_many = True
+    many_to_one = False
+    one_to_many = False
+    one_to_one = False
+
+    rel_class = ManyToManyRel
+
+    description = _("Many-to-many relationship")
+
+    def __init__(self, to, related_name=None, related_query_name=None,
+                 limit_choices_to=None, symmetrical=None, through=None,
+                 through_fields=None, db_constraint=True, db_table=None,
+                 swappable=True, **kwargs):
+        try:
+            to._meta
+        except AttributeError:
+            assert isinstance(to, str), (
+                "%s(%r) is invalid. First parameter to ManyToManyField must be "
+                "either a model, a model name, or the string %r" %
+                (self.__class__.__name__, to, RECURSIVE_RELATIONSHIP_CONSTANT)
+            )
+
+        if symmetrical is None:
+            symmetrical = (to == RECURSIVE_RELATIONSHIP_CONSTANT)
+
+        if through is not None:
+            assert db_table is None, (
+                "Cannot specify a db_table if an intermediary model is used."
+            )
+
+        kwargs['rel'] = self.rel_class(
+            self, to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+            symmetrical=symmetrical,
+            through=through,
+            through_fields=through_fields,
+            db_constraint=db_constraint,
+        )
+        self.has_null_arg = 'null' in kwargs
+
+        super().__init__(**kwargs)
+
+        self.db_table = db_table
+        self.swappable = swappable
+
+    def check(self, **kwargs):
+        return [
+            *super().check(**kwargs),
+            *self._check_unique(**kwargs),
+            *self._check_relationship_model(**kwargs),
+            *self._check_ignored_options(**kwargs),
+            *self._check_table_uniqueness(**kwargs),
+        ]
+
+    def _check_unique(self, **kwargs):
+        if self.unique:
+            return [
+                checks.Error(
+                    'ManyToManyFields cannot be unique.',
+                    obj=self,
+                    id='fields.E330',
+                )
+            ]
+        return []
+
+    def _check_ignored_options(self, **kwargs):
+        warnings = []
+
+        if self.has_null_arg:
+            warnings.append(
+                checks.Warning(
+                    'null has no effect on ManyToManyField.',
+                    obj=self,
+                    id='fields.W340',
+                )
+            )
+
+        if self._validators:
+            warnings.append(
+                checks.Warning(
+                    'ManyToManyField does not support validators.',
+                    obj=self,
+                    id='fields.W341',
+                )
+            )
+        if (self.remote_field.limit_choices_to and self.remote_field.through and
+                not self.remote_field.through._meta.auto_created):
+            warnings.append(
+                checks.Warning(
+                    'limit_choices_to has no effect on ManyToManyField '
+                    'with a through model.',
+                    obj=self,
+                    id='fields.W343',
+                )
+            )
+
+        return warnings
+
+    def _check_relationship_model(self, from_model=None, **kwargs):
+        if hasattr(self.remote_field.through, '_meta'):
+            qualified_model_name = "%s.%s" % (
+                self.remote_field.through._meta.app_label, self.remote_field.through.__name__)
+        else:
+            qualified_model_name = self.remote_field.through
+
+        errors = []
+
+        if self.remote_field.through not in self.opts.apps.get_models(include_auto_created=True):
+            # The relationship model is not installed.
+            errors.append(
+                checks.Error(
+                    "Field specifies a many-to-many relation through model "
+                    "'%s', which has not been installed." % qualified_model_name,
+                    obj=self,
+                    id='fields.E331',
+                )
+            )
+
+        else:
+            assert from_model is not None, (
+                "ManyToManyField with intermediate "
+                "tables cannot be checked if you don't pass the model "
+                "where the field is attached to."
+            )
+            # Set some useful local variables
+            to_model = resolve_relation(from_model, self.remote_field.model)
+            from_model_name = from_model._meta.object_name
+            if isinstance(to_model, str):
+                to_model_name = to_model
+            else:
+                to_model_name = to_model._meta.object_name
+            relationship_model_name = self.remote_field.through._meta.object_name
+            self_referential = from_model == to_model
+
+            # Check symmetrical attribute.
+            if (self_referential and self.remote_field.symmetrical and
+                    not self.remote_field.through._meta.auto_created):
+                errors.append(
+                    checks.Error(
+                        'Many-to-many fields with intermediate tables must not be symmetrical.',
+                        obj=self,
+                        id='fields.E332',
+                    )
+                )
+
+            # Count foreign keys in intermediate model
+            if self_referential:
+                seen_self = sum(
+                    from_model == getattr(field.remote_field, 'model', None)
+                    for field in self.remote_field.through._meta.fields
+                )
+
+                if seen_self > 2 and not self.remote_field.through_fields:
+                    errors.append(
+                        checks.Error(
+                            "The model is used as an intermediate model by "
+                            "'%s', but it has more than two foreign keys "
+                            "to '%s', which is ambiguous. You must specify "
+                            "which two foreign keys Django should use via the "
+                            "through_fields keyword argument." % (self, from_model_name),
+                            hint="Use through_fields to specify which two foreign keys Django should use.",
+                            obj=self.remote_field.through,
+                            id='fields.E333',
+                        )
+                    )
+
+            else:
+                # Count foreign keys in relationship model
+                seen_from = sum(
+                    from_model == getattr(field.remote_field, 'model', None)
+                    for field in self.remote_field.through._meta.fields
+                )
+                seen_to = sum(
+                    to_model == getattr(field.remote_field, 'model', None)
+                    for field in self.remote_field.through._meta.fields
+                )
+
+                if seen_from > 1 and not self.remote_field.through_fields:
+                    errors.append(
+                        checks.Error(
+                            ("The model is used as an intermediate model by "
+                             "'%s', but it has more than one foreign key "
+                             "from '%s', which is ambiguous. You must specify "
+                             "which foreign key Django should use via the "
+                             "through_fields keyword argument.") % (self, from_model_name),
+                            hint=(
+                                'If you want to create a recursive relationship, '
+                                'use ForeignKey("self", symmetrical=False, through="%s").'
+                            ) % relationship_model_name,
+                            obj=self,
+                            id='fields.E334',
+                        )
+                    )
+
+                if seen_to > 1 and not self.remote_field.through_fields:
+                    errors.append(
+                        checks.Error(
+                            "The model is used as an intermediate model by "
+                            "'%s', but it has more than one foreign key "
+                            "to '%s', which is ambiguous. You must specify "
+                            "which foreign key Django should use via the "
+                            "through_fields keyword argument." % (self, to_model_name),
+                            hint=(
+                                'If you want to create a recursive relationship, '
+                                'use ForeignKey("self", symmetrical=False, through="%s").'
+                            ) % relationship_model_name,
+                            obj=self,
+                            id='fields.E335',
+                        )
+                    )
+
+                if seen_from == 0 or seen_to == 0:
+                    errors.append(
+                        checks.Error(
+                            "The model is used as an intermediate model by "
+                            "'%s', but it does not have a foreign key to '%s' or '%s'." % (
+                                self, from_model_name, to_model_name
+                            ),
+                            obj=self.remote_field.through,
+                            id='fields.E336',
+                        )
+                    )
+
+        # Validate `through_fields`.
+        if self.remote_field.through_fields is not None:
+            # Validate that we're given an iterable of at least two items
+            # and that none of them is "falsy".
+            if not (len(self.remote_field.through_fields) >= 2 and
+                    self.remote_field.through_fields[0] and self.remote_field.through_fields[1]):
+                errors.append(
+                    checks.Error(
+                        "Field specifies 'through_fields' but does not provide "
+                        "the names of the two link fields that should be used "
+                        "for the relation through model '%s'." % qualified_model_name,
+                        hint="Make sure you specify 'through_fields' as through_fields=('field1', 'field2')",
+                        obj=self,
+                        id='fields.E337',
+                    )
+                )
+
+            # Validate the given through fields -- they should be actual
+            # fields on the through model, and also be foreign keys to the
+            # expected models.
+            else:
+                assert from_model is not None, (
+                    "ManyToManyField with intermediate "
+                    "tables cannot be checked if you don't pass the model "
+                    "where the field is attached to."
+                )
+
+                source, through, target = from_model, self.remote_field.through, self.remote_field.model
+                source_field_name, target_field_name = self.remote_field.through_fields[:2]
+
+                for field_name, related_model in ((source_field_name, source),
+                                                  (target_field_name, target)):
+
+                    possible_field_names = []
+                    for f in through._meta.fields:
+                        if hasattr(f, 'remote_field') and getattr(f.remote_field, 'model', None) == related_model:
+                            possible_field_names.append(f.name)
+                    if possible_field_names:
+                        hint = "Did you mean one of the following foreign keys to '%s': %s?" % (
+                            related_model._meta.object_name,
+                            ', '.join(possible_field_names),
+                        )
+                    else:
+                        hint = None
+
+                    try:
+                        field = through._meta.get_field(field_name)
+                    except exceptions.FieldDoesNotExist:
+                        errors.append(
+                            checks.Error(
+                                "The intermediary model '%s' has no field '%s'."
+                                % (qualified_model_name, field_name),
+                                hint=hint,
+                                obj=self,
+                                id='fields.E338',
+                            )
+                        )
+                    else:
+                        if not (hasattr(field, 'remote_field') and
+                                getattr(field.remote_field, 'model', None) == related_model):
+                            errors.append(
+                                checks.Error(
+                                    "'%s.%s' is not a foreign key to '%s'." % (
+                                        through._meta.object_name, field_name,
+                                        related_model._meta.object_name,
+                                    ),
+                                    hint=hint,
+                                    obj=self,
+                                    id='fields.E339',
+                                )
+                            )
+
+        return errors
+
+    def _check_table_uniqueness(self, **kwargs):
+        if isinstance(self.remote_field.through, str) or not self.remote_field.through._meta.managed:
+            return []
+        registered_tables = {
+            model._meta.db_table: model
+            for model in self.opts.apps.get_models(include_auto_created=True)
+            if model != self.remote_field.through and model._meta.managed
+        }
+        m2m_db_table = self.m2m_db_table()
+        model = registered_tables.get(m2m_db_table)
+        # The second condition allows multiple m2m relations on a model if
+        # some point to a through model that proxies another through model.
+        if model and model._meta.concrete_model != self.remote_field.through._meta.concrete_model:
+            if model._meta.auto_created:
+                def _get_field_name(model):
+                    for field in model._meta.auto_created._meta.many_to_many:
+                        if field.remote_field.through is model:
+                            return field.name
+                opts = model._meta.auto_created._meta
+                clashing_obj = '%s.%s' % (opts.label, _get_field_name(model))
+            else:
+                clashing_obj = model._meta.label
+            return [
+                checks.Error(
+                    "The field's intermediary table '%s' clashes with the "
+                    "table name of '%s'." % (m2m_db_table, clashing_obj),
+                    obj=self,
+                    id='fields.E340',
+                )
+            ]
+        return []
+
+    def deconstruct(self):
+        name, path, args, kwargs = super().deconstruct()
+        # Handle the simpler arguments.
+        if self.db_table is not None:
+            kwargs['db_table'] = self.db_table
+        if self.remote_field.db_constraint is not True:
+            kwargs['db_constraint'] = self.remote_field.db_constraint
+        # Rel needs more work.
+        if isinstance(self.remote_field.model, str):
+            kwargs['to'] = self.remote_field.model
+        else:
+            kwargs['to'] = "%s.%s" % (
+                self.remote_field.model._meta.app_label,
+                self.remote_field.model._meta.object_name,
+            )
+        if getattr(self.remote_field, 'through', None) is not None:
+            if isinstance(self.remote_field.through, str):
+                kwargs['through'] = self.remote_field.through
+            elif not self.remote_field.through._meta.auto_created:
+                kwargs['through'] = "%s.%s" % (
+                    self.remote_field.through._meta.app_label,
+                    self.remote_field.through._meta.object_name,
+                )
+        # If swappable is True, then see if we're actually pointing to the target
+        # of a swap.
+        swappable_setting = self.swappable_setting
+        if swappable_setting is not None:
+            # If it's already a settings reference, error.
+            if hasattr(kwargs['to'], "setting_name"):
+                if kwargs['to'].setting_name != swappable_setting:
+                    raise ValueError(
+                        "Cannot deconstruct a ManyToManyField pointing to a "
+                        "model that is swapped in place of more than one model "
+                        "(%s and %s)" % (kwargs['to'].setting_name, swappable_setting)
+                    )
+
+            kwargs['to'] = SettingsReference(
+                kwargs['to'],
+                swappable_setting,
+            )
+        return name, path, args, kwargs
+
+    def _get_path_info(self, direct=False, filtered_relation=None):
+        """Called by both direct and indirect m2m traversal."""
+        int_model = self.remote_field.through
+        linkfield1 = int_model._meta.get_field(self.m2m_field_name())
+        linkfield2 = int_model._meta.get_field(self.m2m_reverse_field_name())
+        if direct:
+            join1infos = linkfield1.get_reverse_path_info()
+            join2infos = linkfield2.get_path_info(filtered_relation)
+        else:
+            join1infos = linkfield2.get_reverse_path_info()
+            join2infos = linkfield1.get_path_info(filtered_relation)
+
+        # Get join infos between the last model of join 1 and the first model
+        # of join 2. Assume the only reason these may differ is due to model
+        # inheritance.
+        join1_final = join1infos[-1].to_opts
+        join2_initial = join2infos[0].from_opts
+        if join1_final is join2_initial:
+            intermediate_infos = []
+        elif issubclass(join1_final.model, join2_initial.model):
+            intermediate_infos = join1_final.get_path_to_parent(join2_initial.model)
+        else:
+            intermediate_infos = join2_initial.get_path_from_parent(join1_final.model)
+
+        return [*join1infos, *intermediate_infos, *join2infos]
+
+    def get_path_info(self, filtered_relation=None):
+        return self._get_path_info(direct=True, filtered_relation=filtered_relation)
+
+    def get_reverse_path_info(self, filtered_relation=None):
+        return self._get_path_info(direct=False, filtered_relation=filtered_relation)
+
+    def _get_m2m_db_table(self, opts):
+        """
+        Function that can be curried to provide the m2m table name for this
+        relation.
+        """
+        if self.remote_field.through is not None:
+            return self.remote_field.through._meta.db_table
+        elif self.db_table:
+            return self.db_table
+        else:
+            m2m_table_name = '%s_%s' % (utils.strip_quotes(opts.db_table), self.name)
+            return utils.truncate_name(m2m_table_name, connection.ops.max_name_length())
+
+    def _get_m2m_attr(self, related, attr):
+        """
+        Function that can be curried to provide the source accessor or DB
+        column name for the m2m table.
+        """
+        cache_attr = '_m2m_%s_cache' % attr
+        if hasattr(self, cache_attr):
+            return getattr(self, cache_attr)
+        if self.remote_field.through_fields is not None:
+            link_field_name = self.remote_field.through_fields[0]
+        else:
+            link_field_name = None
+        for f in self.remote_field.through._meta.fields:
+            if (f.is_relation and f.remote_field.model == related.related_model and
+                    (link_field_name is None or link_field_name == f.name)):
+                setattr(self, cache_attr, getattr(f, attr))
+                return getattr(self, cache_attr)
+
+    def _get_m2m_reverse_attr(self, related, attr):
+        """
+        Function that can be curried to provide the related accessor or DB
+        column name for the m2m table.
+        """
+        cache_attr = '_m2m_reverse_%s_cache' % attr
+        if hasattr(self, cache_attr):
+            return getattr(self, cache_attr)
+        found = False
+        if self.remote_field.through_fields is not None:
+            link_field_name = self.remote_field.through_fields[1]
+        else:
+            link_field_name = None
+        for f in self.remote_field.through._meta.fields:
+            if f.is_relation and f.remote_field.model == related.model:
+                if link_field_name is None and related.related_model == related.model:
+                    # If this is an m2m-intermediate to self,
+                    # the first foreign key you find will be
+                    # the source column. Keep searching for
+                    # the second foreign key.
+                    if found:
+                        setattr(self, cache_attr, getattr(f, attr))
+                        break
+                    else:
+                        found = True
+                elif link_field_name is None or link_field_name == f.name:
+                    setattr(self, cache_attr, getattr(f, attr))
+                    break
+        return getattr(self, cache_attr)
+
+    def contribute_to_class(self, cls, name, **kwargs):
+        # To support multiple relations to self, it's useful to have a non-None
+        # related name on symmetrical relations for internal reasons. The
+        # concept doesn't make a lot of sense externally ("you want me to
+        # specify *what* on my non-reversible relation?!"), so we set it up
+        # automatically. The funky name reduces the chance of an accidental
+        # clash.
+        if self.remote_field.symmetrical and (
+                self.remote_field.model == "self" or self.remote_field.model == cls._meta.object_name):
+            self.remote_field.related_name = "%s_rel_+" % name
+        elif self.remote_field.is_hidden():
+            # If the backwards relation is disabled, replace the original
+            # related_name with one generated from the m2m field name. Django
+            # still uses backwards relations internally and we need to avoid
+            # clashes between multiple m2m fields with related_name == '+'.
+            self.remote_field.related_name = "_%s_%s_+" % (cls.__name__.lower(), name)
+
+        super().contribute_to_class(cls, name, **kwargs)
+
+        # The intermediate m2m model is not auto created if:
+        #  1) There is a manually specified intermediate, or
+        #  2) The class owning the m2m field is abstract.
+        #  3) The class owning the m2m field has been swapped out.
+        if not cls._meta.abstract:
+            if self.remote_field.through:
+                def resolve_through_model(_, model, field):
+                    field.remote_field.through = model
+                lazy_related_operation(resolve_through_model, cls, self.remote_field.through, field=self)
+            elif not cls._meta.swapped:
+                self.remote_field.through = create_many_to_many_intermediary_model(self, cls)
+
+        # Add the descriptor for the m2m relation.
+        setattr(cls, self.name, ManyToManyDescriptor(self.remote_field, reverse=False))
+
+        # Set up the accessor for the m2m table name for the relation.
+        self.m2m_db_table = partial(self._get_m2m_db_table, cls._meta)
+
+    def contribute_to_related_class(self, cls, related):
+        # Internal M2Ms (i.e., those with a related name ending with '+')
+        # and swapped models don't get a related descriptor.
+        if not self.remote_field.is_hidden() and not related.related_model._meta.swapped:
+            setattr(cls, related.get_accessor_name(), ManyToManyDescriptor(self.remote_field, reverse=True))
+
+        # Set up the accessors for the column names on the m2m table.
+        self.m2m_column_name = partial(self._get_m2m_attr, related, 'column')
+        self.m2m_reverse_name = partial(self._get_m2m_reverse_attr, related, 'column')
+
+        self.m2m_field_name = partial(self._get_m2m_attr, related, 'name')
+        self.m2m_reverse_field_name = partial(self._get_m2m_reverse_attr, related, 'name')
+
+        get_m2m_rel = partial(self._get_m2m_attr, related, 'remote_field')
+        self.m2m_target_field_name = lambda: get_m2m_rel().field_name
+        get_m2m_reverse_rel = partial(self._get_m2m_reverse_attr, related, 'remote_field')
+        self.m2m_reverse_target_field_name = lambda: get_m2m_reverse_rel().field_name
+
+    def set_attributes_from_rel(self):
+        pass
+
+    def value_from_object(self, obj):
+        return [] if obj.pk is None else list(getattr(obj, self.attname).all())
+
+    def save_form_data(self, instance, data):
+        getattr(instance, self.attname).set(data)
+
+    def formfield(self, *, using=None, **kwargs):
+        defaults = {
+            'form_class': forms.ModelMultipleChoiceField,
+            'queryset': self.remote_field.model._default_manager.using(using),
+            **kwargs,
+        }
+        # If initial is passed in, it's a list of related objects, but the
+        # MultipleChoiceField takes a list of IDs.
+        if defaults.get('initial') is not None:
+            initial = defaults['initial']
+            if callable(initial):
+                initial = initial()
+            defaults['initial'] = [i.pk for i in initial]
+        return super().formfield(**defaults)
+
+    def db_check(self, connection):
+        return None
+
+    def db_type(self, connection):
+        # A ManyToManyField is not represented by a single column,
+        # so return None.
+        return None
+
+    def db_parameters(self, connection):
+        return {"type": None, "check": None}
+
+class ManyToManyRel(ForeignObjectRel):
+    """
+    Used by ManyToManyField to store information about the relation.
+
+    ``_meta.get_fields()`` returns this class to provide access to the field
+    flags for the reverse relation.
+    """
+
+    def __init__(self, field, to, related_name=None, related_query_name=None,
+                 limit_choices_to=None, symmetrical=True, through=None,
+                 through_fields=None, db_constraint=True):
+        super().__init__(
+            field, to,
+            related_name=related_name,
+            related_query_name=related_query_name,
+            limit_choices_to=limit_choices_to,
+        )
+
+        if through and not db_constraint:
+            raise ValueError("Can't supply a through model and db_constraint=False")
+        self.through = through
+
+        if through_fields and not through:
+            raise ValueError("Cannot specify through_fields without a through model")
+        self.through_fields = through_fields
+
+        self.symmetrical = symmetrical
+        self.db_constraint = db_constraint
+
+    def get_related_field(self):
+        """
+        Return the field in the 'to' object to which this relationship is tied.
+        Provided for symmetry with ManyToOneRel.
+        """
+        opts = self.through._meta
+        if self.through_fields:
+            field = opts.get_field(self.through_fields[0])
+        else:
+            for field in opts.fields:
+                rel = getattr(field, 'remote_field', None)
+                if rel and rel.model == self.model:
+                    break
+        return field.foreign_related_fields[0]
+
+
+
+# end fields.py

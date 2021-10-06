@@ -13,6 +13,7 @@ from django.core.exceptions         import ImproperlyConfigured
 
 # Arango Python driver (python-arango) imports.
 from arango                         import ArangoClient
+from arango.exceptions              import DocumentCountError
 
 debug_client = True
 
@@ -183,7 +184,45 @@ class Database(object):
             logger.debug("ArangoClient: create_collection() no connection to DB")
             return
 
-        self.adb.create_collection(name)
+        return self.adb.create_collection(name)
+
+    def get_collections(self):
+        return self.adb.collections()
+
+    def get_collection(self, name):
+        if not self.ready():
+            logger.debug("ArangoClient: get_collection() no connection to DB")
+            return None
+
+        try:
+            coll = self.adb[name]
+        except DocumentCountError:
+            logger.debug(f"get_collection() collection not found for: {name}")
+            return None
+
+        return coll
+#       collections = self.adb.collections()
+#       idx = [ x for x in range(len(collections)) if collections[x]['name'] == name ]
+#       if len(idx) == 0:
+#           return None
+
+#       return collections[idx[0]]
+
+    def get_collection_docs(self, name):
+        # Fetch all records from the specified table.
+        if not self.ready():
+            logger.debug("ArangoClient: get_collection_docs() no connection to DB")
+            return None
+
+        try:
+            coll = self.adb[name]
+        except DocumentCountError:
+            logger.debug(f"get_collection_docs() collection not found for: {name}")
+            return None
+
+        count = coll.count()
+        logger.debug(f"get_collection_docs() returning {count} documents from: {name}")
+        return coll.all()
 
     def delete_collection(self, name):
         if not self.ready():
@@ -207,6 +246,36 @@ class Database(object):
 
         coll = self.adb[collection]
         return coll.get({ '_key': str(key) })
+
+    def has_graph(self, name):
+        if not self.ready():
+            logger.debug("ArangoClient: has_graph() no connection to DB")
+            return False
+        return self.adb.has_graph(name)
+
+    def graph(self, name):
+        if not self.ready():
+            logger.debug("ArangoClient: graph() no connection to DB")
+            return None
+        return self.adb.graph(name)
+
+    def graphs(self):
+        if not self.ready():
+            logger.debug("ArangoClient: graphs() no connection to DB")
+            return None
+        return self.adb.graphs()
+
+    def create_graph(self, name, eds):
+        if not self.ready():
+            logger.debug("ArangoClient: create_graph() no connection to DB")
+            return None
+        return self.adb.create_graph(name, eds)
+
+    def create_vertex_collection(self, name):
+        if not self.ready():
+            logger.debug("ArangoClient: create_vertex_collection() no connection to DB")
+            return None
+        return self.adb.create_vertex_collection(name)
 
 class DatabaseClient(BaseDatabaseClient):
     # Use arangosh as the DB client shell.

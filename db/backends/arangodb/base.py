@@ -273,7 +273,16 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     # Utility methods
     def create_collection(self, name):
         if self.Database.ready():
-            self.Database.create_collection(name)
+            return self.Database.create_collection(name)
+        return None
+
+    def get_collection(self, name):
+        if self.Database.ready():
+            return self.Database.get_collection(name)
+        return None
+
+    def get_collections(self):
+        return self.Database.get_collections()
 
     def delete_all_collections(self):
         if self.Database.ready():
@@ -283,6 +292,11 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         if self.Database.ready():
             self.Database.delete_collection(name)
 
+    def get_collection_docs(self, name):
+        if self.Database.ready():
+            return self.Database.get_collection_docs(name)
+        return None
+
     def delete_document(self, collection, key):
         if self.Database.ready():
             self.Database.delete_document(collection, key)
@@ -290,5 +304,30 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     def get_document(self, collection, key):
         if self.Database.ready():
             self.Database.get_document(collection, key)
+
+    def has_graph(self, name):
+        if self.Database.ready():
+            return self.Database.has_graph(name)
+        return False
+
+    def graph(self, name):
+        if self.Database.ready():
+            return self.Database.graph(name)
+        return None
+
+    def graphs(self):
+        if self.Database.ready():
+            return self.Database.graphs()
+        return None
+
+    def create_graph(self, name, eds):
+        if self.Database.ready():
+            return self.Database.create_graph(name, eds)
+        return None
+
+    def create_vertex_collection(self, name):
+        if self.Database.ready():
+            return self.Database.create_vertex_collection(name)
+        return None
 
 # base.py
