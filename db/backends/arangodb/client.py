@@ -265,17 +265,34 @@ class Database(object):
             return None
         return self.adb.graphs()
 
-    def create_graph(self, name, eds):
+    def create_graph(self, graph_name, eds):
+        # Create a graph, including a list of edge definitions.
         if not self.ready():
             logger.debug("ArangoClient: create_graph() no connection to DB")
             return None
-        return self.adb.create_graph(name, eds)
+        return self.adb.create_graph(graph_name, eds)
 
     def create_vertex_collection(self, name):
+        # Add a vertex collection to an existing graph.
+        # The vertex collection will be an orphan.
         if not self.ready():
             logger.debug("ArangoClient: create_vertex_collection() no connection to DB")
             return None
         return self.adb.create_vertex_collection(name)
+
+    def create_edge_definition(self, graph_name, edge_name, source, target):
+        # Add an edge definition to an existing graph.
+        if not self.ready():
+            logger.debug("ArangoClient: create_edge_definition() no connection to DB")
+            return None
+
+        try:
+            g = self.graph(graph_name)
+        except DoesNotExist:
+            logger.debug("ArangoClient: create_edge_definition({graph_name}) graph not found")
+            return None
+
+        return graph.create_edge_definition(edge_name, source, target)
 
 class DatabaseClient(BaseDatabaseClient):
     # Use arangosh as the DB client shell.

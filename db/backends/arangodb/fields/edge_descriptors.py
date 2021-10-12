@@ -56,13 +56,70 @@ from django.db.models import Q, signals
 from django.db.models.query import QuerySet
 from django.utils.functional import cached_property
 
-class ManyToManyDescriptor(ReverseManyToOneDescriptor):
+class ReverseEdgeDescriptor:
+    """
+    Accessor to the related objects manager on the reverse side of a
+    many-to-one relation.
+
+    In the example::
+
+        class Child(Model):
+            parent = ForeignKey(Parent, related_name='children')
+
+    ``Parent.children`` is a ``ReverseEdgeDescriptor`` instance.
+
+    Most of the implementation is delegated to a dynamically defined manager
+    class built by ``create_forward_edge_to_edge_manager()`` defined below.
+    """
+
+    def __init__(self, rel):
+        self.rel = rel
+        self.field = rel.field
+
+    @cached_property
+    def related_manager_cls(self):
+        related_model = self.rel.related_model
+
+        return create_reverse_many_to_one_manager(
+            related_model._default_manager.__class__,
+            self.rel,
+        )
+
+    def __get__(self, instance, cls=None):
+        """
+        Get the related objects through the reverse relation.
+
+        With the example above, when getting ``parent.children``:
+
+        - ``self`` is the descriptor managing the ``children`` attribute
+        - ``instance`` is the ``parent`` instance
+        - ``cls`` is the ``Parent`` class (unused)
+        """
+        if instance is None:
+            return self
+
+        return self.related_manager_cls(instance)
+
+    def _get_set_deprecation_msg_params(self):
+        return (
+            'reverse side of a related set',
+            self.rel.get_accessor_name(),
+        )
+
+    def __set__(self, instance, value):
+        raise TypeError(
+            'Direct assignment to the %s is prohibited. Use %s.set() instead.'
+            % self._get_set_deprecation_msg_params(),
+        )
+
+
+class EdgeDescriptor(ReverseEdgeDescriptor):
     """
     Accessor to the related objects manager on the forward and reverse sides of
     an edge relation (similar to many-to-many relation).
 
     Most of the implementation is delegated to a dynamically defined manager
-    class built by ``create_forward_many_to_many_manager()`` defined below.
+    class built by ``create_forward_edge_to_edge_manager()`` defined below.
     """
 
     def __init__(self, rel, reverse=False):
@@ -81,7 +138,7 @@ class ManyToManyDescriptor(ReverseManyToOneDescriptor):
     def related_manager_cls(self):
         related_model = self.rel.related_model if self.reverse else self.rel.model
 
-        return create_forward_many_to_many_manager(
+        return create_forward_edge_to_edge_manager(
             related_model._default_manager.__class__,
             self.rel,
             reverse=self.reverse,
@@ -94,15 +151,15 @@ class ManyToManyDescriptor(ReverseManyToOneDescriptor):
         )
 
 
-def create_forward_many_to_many_manager(superclass, rel, reverse):
+def create_forward_edge_to_edge_manager(superclass, rel, reverse):
     """
-    Create a manager for the either side of a many-to-many relation.
+    Create a manager for the either side of an edge-to-edge relation.
 
     This manager subclasses another manager, generally the default manager of
-    the related model, and adds behaviors specific to many-to-many relations.
+    the related model, and adds behaviors specific to edge-to-edge relations.
     """
 
-    class ManyRelatedManager(superclass):
+    class EdgeRelatedManager(superclass):
         def __init__(self, instance=None):
             super().__init__()
 
@@ -112,15 +169,15 @@ def create_forward_many_to_many_manager(superclass, rel, reverse):
                 self.model = rel.model
                 self.query_field_name = rel.field.related_query_name()
                 self.prefetch_cache_name = rel.field.name
-                self.source_field_name = rel.field.m2m_field_name()
-                self.target_field_name = rel.field.m2m_reverse_field_name()
+                self.source_field_name = rel.field.e2e_field_name()
+                self.target_field_name = rel.field.e2e_reverse_field_name()
                 self.symmetrical = rel.symmetrical
             else:
                 self.model = rel.related_model
                 self.query_field_name = rel.field.name
                 self.prefetch_cache_name = rel.field.related_query_name()
-                self.source_field_name = rel.field.m2m_reverse_field_name()
-                self.target_field_name = rel.field.m2m_field_name()
+                self.source_field_name = rel.field.e2e_reverse_field_name()
+                self.target_field_name = rel.field.e2e_field_name()
                 self.symmetrical = False
 
             self.through = rel.through
@@ -151,7 +208,7 @@ def create_forward_many_to_many_manager(superclass, rel, reverse):
 
         def __call__(self, *, manager):
             manager = getattr(self.model, manager)
-            manager_class = create_forward_many_to_many_manager(manager.__class__, rel, reverse)
+            manager_class = create_forward_edge_to_edge_manager(manager.__class__, rel, reverse)
             return manager_class(instance=self.instance)
         do_not_call_in_templates = True
 
@@ -256,7 +313,7 @@ def create_forward_many_to_many_manager(superclass, rel, reverse):
         def clear(self):
             db = router.db_for_write(self.through, instance=self.instance)
             with transaction.atomic(using=db, savepoint=False):
-                signals.m2m_changed.send(
+                signals.e2e_changed.send(
                     sender=self.through, action="pre_clear",
                     instance=self.instance, reverse=self.reverse,
                     model=self.model, pk_set=None, using=db,
@@ -265,7 +322,7 @@ def create_forward_many_to_many_manager(superclass, rel, reverse):
                 filters = self._build_remove_filters(super().get_queryset().using(db))
                 self.through._default_manager.using(db).filter(filters).delete()
 
-                signals.m2m_changed.send(
+                signals.e2e_changed.send(
                     sender=self.through, action="post_clear",
                     instance=self.instance, reverse=self.reverse,
                     model=self.model, pk_set=None, using=db,
@@ -302,14 +359,14 @@ def create_forward_many_to_many_manager(superclass, rel, reverse):
 
         def create(self, *, through_defaults=None, **kwargs):
             db = router.db_for_write(self.instance.__class__, instance=self.instance)
-            new_obj = super(ManyRelatedManager, self.db_manager(db)).create(**kwargs)
+            new_obj = super(EdgeRelatedManager, self.db_manager(db)).create(**kwargs)
             self.add(new_obj, through_defaults=through_defaults)
             return new_obj
         create.alters_data = True
 
         def get_or_create(self, *, through_defaults=None, **kwargs):
             db = router.db_for_write(self.instance.__class__, instance=self.instance)
-            obj, created = super(ManyRelatedManager, self.db_manager(db)).get_or_create(**kwargs)
+            obj, created = super(EdgeRelatedManager, self.db_manager(db)).get_or_create(**kwargs)
             # We only need to add() if created because if we got an object back
             # from get() then the relationship already exists.
             if created:
@@ -319,7 +376,7 @@ def create_forward_many_to_many_manager(superclass, rel, reverse):
 
         def update_or_create(self, *, through_defaults=None, **kwargs):
             db = router.db_for_write(self.instance.__class__, instance=self.instance)
-            obj, created = super(ManyRelatedManager, self.db_manager(db)).update_or_create(**kwargs)
+            obj, created = super(EdgeRelatedManager, self.db_manager(db)).update_or_create(**kwargs)
             # We only need to add() if created because if we got an object back
             # from get() then the relationship already exists.
             if created:
@@ -373,7 +430,7 @@ def create_forward_many_to_many_manager(superclass, rel, reverse):
                     if self.reverse or source_field_name == self.source_field_name:
                         # Don't send the signal when we are inserting the
                         # duplicate data row for symmetrical reverse entries.
-                        signals.m2m_changed.send(
+                        signals.e2e_changed.send(
                             sender=self.through, action='pre_add',
                             instance=self.instance, reverse=self.reverse,
                             model=self.model, pk_set=new_ids, using=db,
@@ -391,7 +448,7 @@ def create_forward_many_to_many_manager(superclass, rel, reverse):
                     if self.reverse or source_field_name == self.source_field_name:
                         # Don't send the signal when we are inserting the
                         # duplicate data row for symmetrical reverse entries.
-                        signals.m2m_changed.send(
+                        signals.e2e_changed.send(
                             sender=self.through, action='post_add',
                             instance=self.instance, reverse=self.reverse,
                             model=self.model, pk_set=new_ids, using=db,
@@ -417,7 +474,7 @@ def create_forward_many_to_many_manager(superclass, rel, reverse):
             db = router.db_for_write(self.through, instance=self.instance)
             with transaction.atomic(using=db, savepoint=False):
                 # Send a signal to the other end if need be.
-                signals.m2m_changed.send(
+                signals.e2e_changed.send(
                     sender=self.through, action="pre_remove",
                     instance=self.instance, reverse=self.reverse,
                     model=self.model, pk_set=old_ids, using=db,
@@ -431,10 +488,12 @@ def create_forward_many_to_many_manager(superclass, rel, reverse):
                 filters = self._build_remove_filters(old_vals)
                 self.through._default_manager.using(db).filter(filters).delete()
 
-                signals.m2m_changed.send(
+                signals.e2e_changed.send(
                     sender=self.through, action="post_remove",
                     instance=self.instance, reverse=self.reverse,
                     model=self.model, pk_set=old_ids, using=db,
                 )
 
-    return ManyRelatedManager
+    return EdgeRelatedManager
+
+# edge_descriptors.py
