@@ -1,7 +1,7 @@
 """
-Accessors for related edge objects (copied from related_desciptors.py)
+Accessors for related edge objects (copied from related_descriptors.py)
 
-    related_desciptors:
+    related_descriptors:
     When a field defines a relation between two models, each model class provides
     an attribute to access related instances of the other model class (unless the
     reverse accessor has been disabled with related_name='+').

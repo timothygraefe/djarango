@@ -19,6 +19,10 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
     def get_table_list(self, cursor)->List[TableInfo]:
         """Get the collections dict and return it as list of TableInfos"""
         collections = self.connection.Database.adb.collections()
+
+        # TableInfo namedtuple includes the table name and table type.
+        # Typically this means is the table a "table" or "view".
+        # In ArangoDB table type is either a document or projection.
         table_list = [  TableInfo(table['name'],
                                   { 'document': 't', 'projection': 'v'}.get(table['type']) )
                             for table in collections ]
@@ -26,7 +30,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
         return table_list
 
     def get_table_description(self, cursor, table_name):
-        # Do not remove 'cursor'; see note above.
+        # Do not remove 'cursor' from the signature.
 
         # Get the entire list, since ArangoDB driver grabs the full list anyway.
         collections = self.connection.Database.adb.collections()
@@ -107,7 +111,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
     def get_collection_docs(self, name, verbose = False):
         return self.connection.Database.get_collection_docs(name)
 
-    # copied from dummy/base.py - indicates items that need to be implemented
+    # copied from dummy/base.py - open items that need to be implemented
     get_relations   = complain
     get_indexes     = complain
     get_key_columns = complain

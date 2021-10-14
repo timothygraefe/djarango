@@ -47,7 +47,6 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
             2) create an edge definition structure
             3) add the edge definition to the graph
         """
-        #breakpoint()
         logger.debug(f"\nDatabaseSchemaEditor: add_field:")
         super().add_field(model, field)
 

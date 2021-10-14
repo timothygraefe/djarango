@@ -257,34 +257,34 @@ class EdgeField(RelatedField):
         assert self.remote_field.symmetrical is False, ("Edge models cannot be symmetric")
         assert self.remote_field.is_hidden() is False, ("Edge models cannot hide remote fields")
 
-        # Need to set the remote_field related_name (maybe).
-        # remote_field is added in ForeignObjectRel
-        # It is optional to set the remote field related name.
         srcmodel = cls._meta.object_name.lower()
         dstmodel = name.lower()
-#       self.remote_field.related_name = "edge_def_%s_%s" % (srcmodel, dstmodel)
         if not hasattr(self.remote_field, 'edge_name'):
             self.remote_field.edge_name = "edge_def_%s_%s" % (srcmodel, dstmodel)
 
         if not hasattr(self.remote_field, 'graph_name'):
             self.remote_field.graph_name = "graph_%s_%s" % (srcmodel, dstmodel)
 
-        # TTG the following code is essential for m2m 'through' relationship.
-        # Not sure if/how it should be used for edge relationships.
+        # contribute_to_class() ultimately uses the schema editor to add the
+        # EdgeField to the parent class.
         super().contribute_to_class(cls, name, **kwargs)
 
+        # This needs to be done after contribute_to_class, or it is treated as a kwarg.
+#       self.remote_field.related_name = "edge_def_%s_%s" % (srcmodel, dstmodel)
+
         # Parse the source and destination vertex collections.  These names are
-        # not allowed to be user-specified.  Not sure if I should use setattr().
+        # not allowed to be user-specified.  These will be used in the add_field
+        # method of the schema editor.
         src_vc = "%s_%s" % (cls._meta.app_label, srcmodel)
         dst_vc = "%s_%s" % (cls._meta.app_label, dstmodel)
 
         self.from_vertex_collection = src_vc
         self.to_vertex_collection   = dst_vc
 
-        # Add the descriptor for the edge relation.
-        # Need to step through this; think it contributes to the migration.
-        # cls is <class 'testdb.models.ModelA'> and self.name is set to 'modelb'
-        # self.remote_field is <EdgeRel: testdb.modela>
+        # Add the descriptor for the edge relation.  It will be used for the accessors.
+        # cls example: <class 'testdb.models.ModelA'>
+        # self.name is the name of the EdgeField member of cls (e.g., 'modelb')
+        # self.remote_field is the EdgeRel object, e.g.: <EdgeRel: testdb.modela>
         setattr(cls, self.name, EdgeDescriptor(self.remote_field, reverse=False))
 
     def contribute_to_related_class(self, cls, related):

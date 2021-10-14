@@ -1,2 +1,3 @@
 # djarango
-Django DB Backend Interface for ArangoDB
+ArangoDB Backend Interface for Django
+

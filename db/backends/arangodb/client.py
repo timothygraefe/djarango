@@ -19,6 +19,9 @@ debug_client = True
 
 logger = logging.getLogger('django.db.backends.arangodb')
 
+#
+# Create a Database class to be used as a wrapper to the ArangoDB instance.
+#
 class Database(object):
     # Make this class a singleton.
     def __new__(cls):

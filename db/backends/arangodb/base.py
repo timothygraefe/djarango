@@ -105,6 +105,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     ops           = DatabaseOperations
     vendor        = 'arangodb'
     display_name  = 'ArangoDB'
+    queries_limit = 9000
 
     Database            = Database()
 
@@ -265,6 +266,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         explicit BEGIN with SQLite. This option will be ignored for other
         backends.
         """
+        # set_autocommit() is not yet supported in djarango.
+
         logger.debug("set_autocommit(autocommit={}, force={})".
             format(autocommit, force_begin_transaction_with_broken_autocommit))
         #warnings.warn("set_autocommit() not set", )
