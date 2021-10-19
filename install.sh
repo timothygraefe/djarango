@@ -7,7 +7,9 @@ db/backends/arangodb/creation.py
 db/backends/arangodb/features.py
 db/backends/arangodb/introspection.py
 db/backends/arangodb/operations.py
-db/backends/arangodb/schema.py"
+db/backends/arangodb/schema.py
+db/backends/arangodb/fields/edges.py
+db/backends/arangodb/fields/edge_descriptors.py"
 
 usage()
 {

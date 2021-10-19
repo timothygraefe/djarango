@@ -6,7 +6,7 @@ SRCDIR="${HOME}/src/django/"
 usage()
 {
     echo -e "$0 [ site ]"
-    echo -e "Check for differences with original repo and installed code"
+    echo -e "Check for differences with local repo and installed code"
     echo -e "  site - check for differences with site package files"
     echo -e "  [] - do nothing"
     exit
@@ -19,7 +19,9 @@ db/backends/arangodb/creation.py
 db/backends/arangodb/features.py
 db/backends/arangodb/introspection.py
 db/backends/arangodb/operations.py
-db/backends/arangodb/schema.py"
+db/backends/arangodb/schema.py
+db/backends/arangodb/fields/edges.py
+db/backends/arangodb/fields/edge_descriptors.py"
 
 if [ -z  $1 ];
 then
