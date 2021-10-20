@@ -46,27 +46,20 @@ pyfiles = [ "db/backends/arangodb/base.py",
 
 ################################################################################
 # copied and adapted from Django setup.py
-def check_status(src_dir, dest_dir, use_user_dir, verbose):
+def check_status(src_dir, dest_dir, user_install, verbose):
 
-#   site = { 'ENABLE_USER_SITE' : False }
+    user_pkgs = site.getusersitepackages()
+    user_base = site.getuserbase()
+    site_pkgs = site.getsitepackages()
 
-    # Allow editable install into user site directory.
-    # See https://github.com/pypa/pip/issues/7953.
-#   site.ENABLE_USER_SITE = '--user' in sys.argv[1:]
+    if verbose:
+        print(f"\n  sys.prefix: {sys.prefix}\n")
+        print(f"  user site: {user_pkgs}\n  user base: {user_base}")
+#       print(f"  USER_SITE: {site.USER_SITE}\n  USER_BASE: {site.USER_BASE}")
+        for pkg in site_pkgs:
+            print(f"  site pkg path: {pkg}")
 
-    # Warn if we are installing over top of an existing installation. This can
-    # cause issues where files that were deleted from a more recent Django are
-    # still present in site-packages. See #18115.
-    overlay_warning = False
-
-    print(f"\n  sys.prefix: {sys.prefix}")
-    if not use_user_dir:
-        pkgs = site.getsitepackages()
-        for pkg in pkgs:
-            print(f"  pkg path: {pkg}")
-    else:
-        pkg = site.getusersitepackages()
-        print(f"  user pkg path: {pkg} site.USER_BASE: {site['USER_BASE']}")
+#   if user_install:
 
     lib_paths = [get_python_lib()]
     for lib_path in lib_paths:
@@ -75,25 +68,33 @@ def check_status(src_dir, dest_dir, use_user_dir, verbose):
     if lib_paths[0].startswith("/usr/lib/"):
         # We have to try also with an explicit prefix of /usr/local in order to
         # catch Debian's custom user site-packages directory.
+        print("  appending '/usr/local' path")
         lib_paths.append(get_python_lib(prefix="/usr/local"))
-    for lib_path in lib_paths:
-        existing_path = os.path.abspath(os.path.join(lib_path, "django"))
-        print(f"\n  lib_path: {lib_path}\n  existing_path: {existing_path}")
-        if os.path.exists(existing_path):
-            # We note the need for the warning here, but present it after the
-            # command is run, so it's more likely to be seen.
-            print(f"  existing_path ({existing_path}) exists")
-            overlay_warning = True
-        else:
-            print(f"  existing_path ({existing_path}) does not exist")
 
+    for lib_path in lib_paths:
+        django_path   = os.path.abspath(os.path.join(lib_path, "django"))
+        djarango_path = os.path.abspath(os.path.join(lib_path, "djarango"))
+        print(f"\n  checking lib_path: {lib_path}")
+        print(f"    django_path  : {django_path}\n    djarango_path: {djarango_path}")
+
+        if os.path.exists(django_path):
+            print(f"    {django_path}   exists")
+        else:
+            print(f"    {django_path}   does not exist")
+
+        if os.path.exists(djarango_path):
+            print(f"    {djarango_path} exists")
+        else:
+            print(f"    {djarango_path} does not exist")
+
+    print("")
 #   for pyfile in pyfiles:
 #       cmd=f"  diff {src_dir}/djarango/{pyfile}\n    {dest_dir}/{pyfile}"
 #       print(f"{cmd}")
 
 
 ################################################################################
-def link_djarango(src_dir, dest_dir, use_user_dir, verbose):
+def link_djarango(src_dir, dest_dir, user_install, verbose):
     cmd = f"ln -s {src_dir} {dest_dir}"
     print(f"cmd = {cmd}")
 
@@ -103,7 +104,7 @@ def link_djarango(src_dir, dest_dir, use_user_dir, verbose):
 #       print(f"eval {cmd}")
 
 ################################################################################
-def unlink_djarango(src_dir, dest_dir, use_user_dir, verbose):
+def unlink_djarango(src_dir, dest_dir, user_install, verbose):
     cmd = f"unlink {src_dir} {dest_dir}"
     print(f"cmd = {cmd}")
 
@@ -112,7 +113,7 @@ def unlink_djarango(src_dir, dest_dir, use_user_dir, verbose):
 #       print(f"cmd = {cmd}")
 #       print(f"eval {cmd}")
 
-def show_version(src_dir, dest_dir, use_user_dir, verbose):
+def show_version(src_dir, dest_dir, user_install, verbose):
     ver = get_version()
     print(f"\n  Build info -- version: {ver}\n\
                 build date: {build_date}\n\
@@ -133,7 +134,9 @@ def main():
     parser.add_argument('action', metavar = 'command', nargs = 1, type = str,
                             help='[status|link|unlink]')
 
+    parser.add_argument('--user', action='store_true', default=False, help='user mode')
     parser.add_argument('-V', action='store_true', default=False, help='verbose mode')
+
     args = parser.parse_args()
 
     action = args.action[0].lower() if args.action else None
@@ -159,7 +162,7 @@ def main():
     dp  = dj_actions[idx[0]]
     fnp = dp['action']
 
-    use_user_dir = '--user' in sys.argv[1:]
+    user_install = '--user' in sys.argv[1:]
 
     src_dir  = "env/src/djarango/"
     dest_dir = "site-packages/django/db/backends"
@@ -167,7 +170,7 @@ def main():
     verbose     = (args.V == True) or False
 
     print(f"\n  Running command: \'{action}\' ({dp['desc']})")
-    fnp(src_dir, dest_dir, use_user_dir, verbose)
+    fnp(src_dir, dest_dir, user_install, verbose)
     return 0
 
 ################################################################################
