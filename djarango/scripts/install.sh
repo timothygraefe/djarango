@@ -11,6 +11,13 @@ db/backends/arangodb/schema.py
 db/backends/arangodb/fields/edges.py
 db/backends/arangodb/fields/edge_descriptors.py"
 
+
+ls $VIRTUAL_ENV/lib/python3.8/site-packages
+cmd="pip3 install ./dist/djarango-0.0.3-py3-none-any.whl"
+echo ${cmd}
+eval ${cmd}
+exit
+
 usage()
 {
     echo -e "\n  Usage: install <target directory> [ -install ]"

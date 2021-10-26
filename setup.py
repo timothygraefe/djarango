@@ -14,7 +14,8 @@ long_description = (here / 'README.md').read_text(encoding='utf-8')
 
 # Get the current version:
 #djarango_version = __import__('djarango').get_version()
-djarango_version = __import__('djarango').__version__
+#djarango_version = __import__('djarango').__version__
+#from db.backends.arangodb.version import get_version
 
 ###################################
 # post-install script classes
@@ -43,7 +44,8 @@ class new_install(install):
 ###################################
 setup(
     name        = 'djarango',
-    version     = djarango_version,
+#   version     = djarango_version,
+    version     = '0.0.3',
 
     description = 'ArangoDB Graph Database Backend for Django',
     long_description                = long_description,
@@ -70,8 +72,25 @@ setup(
 
     keywords='django, arangodb, database, nosql',
 
-    package_dir={'':'db'},
-    packages=find_packages(where='db'),
+#   package_dir={''},   # build fails - looking for a dict
+#   package_dir={ '':''},
+    #package_dir={'':'db'},
+    #packages=find_packages(where='db'),
+#   packages= [ 'db/backends/arangodb', ],  # doesn't work - looks for db/db/backends/arangodb
+#                                           # because of package_dir directive above; worked
+#                                           # after commenting out package_dir
+
+#   packages= [ 'db/backends/arangodb', ],  # this works, but puts 'backends/arangodb' in
+#                                           # in the site-packages directory for the source code
+#                                           # I want source code in:
+                                            #   site-packages/djarango/db/backends/arangodb
+#                                           #   and scripts in:
+                                            #   site-packages/djarango/scripts/
+
+    packages= [ 'djarango/db/backends/arangodb',
+                'djarango/db/backends/arangodb/fields',
+                'djarango/scripts' ],
+
     zip_safe=False,
     include_package_data=True,
     python_requires='>=3.6, <4',
@@ -79,7 +98,7 @@ setup(
 
     entry_points={
         'console_scripts': [
-            'djarango=djarango:main',
+            'djarango=djarango.scripts.djarango:main',
         ],
     },
 
