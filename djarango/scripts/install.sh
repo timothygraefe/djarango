@@ -39,6 +39,9 @@ do
     eval "${cmd}"
 done
 
+# Using pip for install now
+
+exit
 if [ $2 == "-install" ];
 then
     for PYFILE in ${PYFILES}
