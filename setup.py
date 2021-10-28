@@ -12,9 +12,7 @@ here = pathlib.Path(__file__).parent.resolve()
 long_description = (here / 'README.md').read_text(encoding='utf-8')
 
 # Get the current version:
-#djarango_version = __import__('djarango').get_version()
-#djarango_version = __import__('djarango').__version__
-#from db.backends.arangodb.version import get_version
+from djarango.scripts.djarango import make_version
 
 ###################################
 # post-install script classes
@@ -33,7 +31,7 @@ class PostDevelopCommand(develop):
 
     def run(self):
         develop.run(self)
-        PostDevelopCommand.djinstall():
+        PostDevelopCommand.djinstall()
 
 class PostInstallCommand(install):
     """ Post-installation for install mode."""
@@ -50,15 +48,14 @@ class PostInstallCommand(install):
 
     def run(self):
         install.run(self)
-        PostInstallCommand.djinstall():
+        PostInstallCommand.djinstall()
 
 
 ###################################
 setup(
     name        = 'djarango',
-#   version     = djarango_version,
-    version     = '0.0.4',
-#   version     = get_version(build=True),
+#   version     = '0.0.4',
+    version     = make_version(),
 
     description = 'ArangoDB Graph Database Backend for Django',
     long_description                = long_description,
@@ -67,6 +64,7 @@ setup(
     url             = 'https://github.com/timothygraefe/djarango',
     author          = 'Timothy Graefe',
     author_email    = 'tgraefe@javamata.net',
+    license         = 'Apache',
 
     classifiers = [
         'Development Status :: 2 - Pre-Alpha',

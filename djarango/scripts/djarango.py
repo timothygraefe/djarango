@@ -14,22 +14,40 @@ from datetime import datetime as dt
 from distutils.sysconfig import get_python_lib
 import django
 
-build_ver = '0.0.3'
-build_date = 'n/a'
-build_type = 'n/a'
+version_file = "RELEASE"
 
 ################################################################################
-def get_version(pypi_build = False):
-    global build_type, build_date
+def make_version():
+    # Need to build the version info
+    output = os.popen('git tag')
+    tag    = output.read()
+    status = output.close()
+    tag = tag.rstrip('\n') if not status else 'unknown version'
 
-    if pypi_build:
-        build_type = 'PyPI Upload'
-    else:
+    # check for local changes
+    output          = os.popen('git diff-index --quiet --cached HEAD')
+    staged_changes  = (output.close() != None)
+    output          = os.popen('git diff-files --quiet')
+    local_changes   = (output.close() != None)
+    output          = os.popen('git ls-files --others --exclude-standard')
+    untracked_files = (len(output.read()) > 0)
+    output.close()
+#   print(f"  tag: \"{tag}\"")
+#   print(f"staged file changes : {staged_changes}")
+#   print(f"local file changes  : {local_changes}")
+#   print(f"untracked files     : {untracked_files}")
+
+    if (staged_changes or local_changes):
+        build_ver  = tag + '+ -- experimental'
         build_type = 'development'
+    else:
+        build_type = 'Official Release'
 
     build_date = dt.now()
+#   os.system(f'echo "{build_ver}\n{build_type}\n{build_date}" > {version_file}')
+    # version info should be in the PKG-INFO file
 
-    return build_ver
+    return tag.lstrip('v')
 
 ################################################################################
 
@@ -259,10 +277,10 @@ def show_version(verbose, silent):
     if silent:
         return
 
-    ver = get_version()
-    print(f"\n  Build info -- version: {ver}\n\
-                build date: {build_date}\n\
-                build type: {build_type}\n")
+#   os.system(f'cat {version_file}') # needs to get the right package
+#   print(f"\n  Build info -- version: {ver}\n\
+#               build type: {build_type}\n\
+#               build date: {build_date}\n")
 
 ################################################################################
 def main():
@@ -271,7 +289,7 @@ def main():
         { 'fnp': check_status,    'desc' : "Check Djarango status", 'cmd': 'status', },
         { 'fnp': link_djarango,   'desc' : "Link Djarango",         'cmd': 'link', },
         { 'fnp': unlink_djarango, 'desc' : "Unlink Djarango",       'cmd': 'unlink', },
-        { 'fnp': show_version,    'desc' : "Show Djarango version", 'cmd': 'version', },
+#       { 'fnp': show_version,    'desc' : "Show Djarango version", 'cmd': 'version', },
     ]
 
     parser = argparse.ArgumentParser(description='Django/ArangoDB command line utility')
