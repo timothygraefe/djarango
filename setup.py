@@ -1,15 +1,14 @@
+import os
 from setuptools import setup, find_packages
 
 # support for post-install script execution
-import atexit
 from setuptools.command.develop import develop
 from setuptools.command.install import install
 
 import pathlib
 
-here = pathlib.Path(__file__).parent.resolve()
-
 # Get the long description from the README file
+here = pathlib.Path(__file__).parent.resolve()
 long_description = (here / 'README.md').read_text(encoding='utf-8')
 
 # Get the current version:
@@ -21,31 +20,45 @@ long_description = (here / 'README.md').read_text(encoding='utf-8')
 # post-install script classes
 class PostDevelopCommand(develop):
     """ Post-installation for development mode."""
+
+    @staticmethod
+    def djinstall():
+        # post install actions for official installation build
+        # print()'s are suppressed by pip, unless the "-vvv" option is used
+        print('POST INSTALL ACTIONS (PostInstallCommand)')
+        print("Linking djarango backend to django installation")
+        os.system('djarango link --silent')
+        print("Use 'djarango status' to check installation")
+        return True
+
     def run(self):
         develop.run(self)
-        # post install actions for developer build
+        PostDevelopCommand.djinstall():
 
 class PostInstallCommand(install):
-    """ Post-installation for development mode."""
+    """ Post-installation for install mode."""
+
+    @staticmethod
+    def djinstall():
+        # post install actions for official installation build
+        # print()'s are suppressed by pip, unless the "-vvv" option is used
+        print('POST INSTALL ACTIONS (PostInstallCommand)')
+        print("Linking djarango backend to django installation")
+        os.system('djarango link --silent')
+        print("Use 'djarango status' to check installation")
+        return True
+
     def run(self):
         install.run(self)
-        # post install actions for official installation build
-
-# post-install script - alternative method
-def _post_install():
-    print('POST INSTALL ACTIONS')
-
-class new_install(install):
-    def __init__(self, *args, **kwargs):
-        super(new_install, self).__init__(*args, **kwargs)
-        atexit.register(_post_install)
+        PostInstallCommand.djinstall():
 
 
 ###################################
 setup(
     name        = 'djarango',
 #   version     = djarango_version,
-    version     = '0.0.3',
+    version     = '0.0.4',
+#   version     = get_version(build=True),
 
     description = 'ArangoDB Graph Database Backend for Django',
     long_description                = long_description,
@@ -91,6 +104,7 @@ setup(
                 'djarango/db/backends/arangodb/fields',
                 'djarango/scripts' ],
 
+    # zip_safe and include_package_data may not be needed
     zip_safe=False,
     include_package_data=True,
     python_requires='>=3.6, <4',
@@ -108,10 +122,10 @@ setup(
     },
 
     # post installation support
-#   cmdclass = {
+    cmdclass = {
 #       'develop' : PostDevelopCommand,
-#       'install' : PostInstallCommand,
-#   },
+        'install' : PostInstallCommand,
+    },
 
     # post installation support - alternative method
 #   cmdclass = { 'install' : new_install, },
