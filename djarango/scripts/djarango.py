@@ -22,7 +22,10 @@ def make_version():
     output = os.popen('git tag')
     tag    = output.read()
     status = output.close()
-    tag = tag.rstrip('\n') if not status else 'unknown version'
+    assert (not status), ("  Unable to get git tag")
+    tag = tag.split('\n')
+    assert len(tag) > 1, ("  Unable to get git tag")
+    tag = tag[-2]
 
     # check for local changes
     output          = os.popen('git diff-index --quiet --cached HEAD')

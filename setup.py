@@ -1,4 +1,5 @@
 import os
+import sys
 from setuptools import setup, find_packages
 
 # support for post-install script execution
@@ -8,11 +9,47 @@ from setuptools.command.install import install
 import pathlib
 
 # Get the long description from the README file
-here = pathlib.Path(__file__).parent.resolve()
+here  = pathlib.Path(__file__).parent.resolve()
+
+# Getting the file path does not work with the "build" module, since build
+# copies the python source to /tmp, but not the git repo.  Hence, trying to
+# execute git commands will fail when "make_version" is invoked.  So we have to
+# specify the path to the setup.py file manually.
+#gitpath = os.path.dirname(os.path.abspath(__file__))
+gitpath = '/home/tgraefe/src/django/djarango'
+
 long_description = (here / 'README.md').read_text(encoding='utf-8')
 
-# Get the current version:
+# Needed so import of make_version will work.
+if not (str(here) in sys.path):
+    sys.path.append(str(here))
+
+curdir = os.getcwd()
+
+debug_path_info = False
+if debug_path_info:
+    print("\n  GETTING PYTHON PATHS:")
+    pypath = sys.path
+    for p in pypath:
+        print(f"    PATH  : {p}")
+    print(f"\n  GITPATH : {gitpath}\n  CWD     : {curdir}\n")
+
+# This will not work with build module, unless path is appended (above).
 from djarango.scripts.djarango import make_version
+
+# Create a version number based on git tags in the original file directory (not
+# the /tmp directory used by the build module).
+os.chdir(gitpath)
+if debug_path_info:
+    print(f"  HERE (1): {os.getcwd()}\n")
+newver = make_version()
+if debug_path_info:
+    print(f"  VERSION : {newver}\n")
+
+# Go back to where 'build' expected us to be.
+os.chdir(curdir)
+if debug_path_info:
+    print(f"  HERE (2): {os.getcwd()}\n")
 
 ###################################
 # post-install script classes
@@ -55,7 +92,7 @@ class PostInstallCommand(install):
 setup(
     name        = 'djarango',
 #   version     = '0.0.4',
-    version     = make_version(),
+    version     = newver,
 
     description = 'ArangoDB Graph Database Backend for Django',
     long_description                = long_description,
