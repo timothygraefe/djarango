@@ -2,7 +2,11 @@
 ArangoDB Backend Interface for Django
 
 # Installation
-pip install djarango
+```
+$ pip install djarango
+$ # check install status
+$ djarango status
+```
 
 # Configure settings.py (example)
 
