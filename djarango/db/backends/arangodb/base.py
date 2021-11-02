@@ -1,7 +1,7 @@
 #
 # base.py
 #
-# Timothy Graefe, Javamata LLC
+# Timothy Graefe, Javamata LLC, Nov 2021
 #
 
 import logging

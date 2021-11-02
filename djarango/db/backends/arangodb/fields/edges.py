@@ -89,8 +89,6 @@ class EdgeRel(ForeignObjectRel):
     """
 
     def __init__(self, field, to, graph_name=None, edge_name=None):
-        #breakpoint()
-
         # super().__init__() resolves to ForeignObjectRel constructor.
         # Nothing significant, other than setting field and model attributes.
         super().__init__(field, to)
@@ -179,9 +177,6 @@ class EdgeField(RelatedField):
 
     def __init__(self, to, graph_name=None, edge_name=None,
                  swappable=True, **kwargs):
-
-        #breakpoint()
-
         # During __init__, 'to' must be a class or a string.  If it is a string,
         # the 'try' block below will fail with 'AttributeError'.  This is fine
         # as long as the parameter is a string.
@@ -229,7 +224,6 @@ class EdgeField(RelatedField):
         # It invokes contribute_to_class in this file when adding EdgeField.
 
     def check(self, **kwargs):
-        #breakpoint()
         return [
             *super().check(**kwargs),
             *self._check_unique(**kwargs),
@@ -253,7 +247,6 @@ class EdgeField(RelatedField):
         # name - name of the class member, e.g., 'modelb'
 
         # TTG: symmetrical should not be supported for EdgeField
-        #breakpoint()
         assert self.remote_field.symmetrical is False, ("Edge models cannot be symmetric")
         assert self.remote_field.is_hidden() is False, ("Edge models cannot hide remote fields")
 
@@ -313,7 +306,6 @@ class EdgeField(RelatedField):
         self.assertEqual(my_field_instance.some_attribute,
                          new_field_instance.some_attribute)
         """
-        #breakpoint()
         name, path, args, kwargs = super().deconstruct()
 
         # There is only 1 positional arguments: target model (e.g., 'ModelB')

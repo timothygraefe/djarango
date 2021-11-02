@@ -59,3 +59,6 @@ class ModelB(models.Model):
     # and each edge will be in different graphs.
     modela          = EdgeField('ModelA', graph_name='ABTest')
 ```
+
+# Design Notes
+Additional information about design and the edge field implementation is in fields.md

@@ -1,6 +1,8 @@
 #
 # operations.py
 #
+# Timothy Graefe, Javamata LLC
+#
 
 # Python imports
 import datetime

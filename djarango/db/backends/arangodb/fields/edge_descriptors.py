@@ -1,3 +1,11 @@
+#
+# edge_descriptors.py
+#
+# Timothy Graefe, Javamata LLC, Nov 2021
+#
+
+# Reference note; copied from django/db/models/fields/related_descriptors.py and
+# updated with my implementation notes.
 """
 Accessors for related edge objects (copied from related_descriptors.py)
 
@@ -21,6 +29,7 @@ Accessors for related edge objects (copied from related_descriptors.py)
      ``child.parent`` is a forward many-to-one relation. ``parent.children`` is a
     reverse many-to-one relation.
 
+TTG
 Edge descriptors:
 
 Edge descriptors are most like many-to-many forward descriptors.  In Djarango,
@@ -31,9 +40,11 @@ the edge definition in each direction, the actual instances of the edge will
 be distinct from each other.
 
 
+related_descriptors.py:
 There are three types of relations (many-to-one, one-to-one, and many-to-many)
 and two directions (forward and reverse) for a total of six combinations.
 
+TTG
 But with Edges, all relations are m2m and forward.
 
     related_descriptors.py:
@@ -50,6 +61,7 @@ But with Edges, all relations are m2m and forward.
 
 """
 
+# Implementation - copied from related_descriptors.py and adapted.
 from django.core.exceptions import FieldError
 from django.db import connections, router, transaction
 from django.db.models import Q, signals

@@ -1,3 +1,9 @@
+#
+# features.py
+#
+# Timothy Graefe, Javamata LLC, Nov 2021
+#
+
 from django.db.backends.base.features import BaseDatabaseFeatures
 
 class DatabaseFeatures(BaseDatabaseFeatures):
