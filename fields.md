@@ -4,24 +4,23 @@ See edges.py for implementation of the edge fields.
 
 
 # General Description of Edge Fields
-"""
-    The EdgeField class implements the "Edge" Field definition for Django model classes.  The Edge field definition is used to add edge objects to Django models.  This in turn creates vertices and edges within the graph database backend for Django.  This is implemented for ArangoDB only.  The EdgeField class does not currently support other graph DB backends.
+The EdgeField class implements the "Edge" Field definition for Django model classes.  The Edge field definition is used to add edge objects to Django models.  This in turn creates vertices and edges within the graph database backend for Django.  This is implemented for ArangoDB only.  The EdgeField class does not currently support other graph DB backends.
 
-    There is no explicit field to support ArangoDB 'vertex' objects in Djarango.  Instead, every Django model in Djarango is implicitly an ArangoDB vertex.  In ArangoDB, everything is stored as a document at the lowest level.  Other ArangoDB storage paradigms are built on top of documents.  The Djarango integration stores all models as documents in ADB, so by default they are also candidates to be vertices.  When an edge field is added to any model, the model is then treated as a vertex.  In the ArangoDB backend, the collection for that model becomes a vertex collection, and an edge collection is created for the edge field that has been added to the model.  A graph is also created for the model and edge collections, and they are also added to the graph.  By convention, Djarango generates a name for the graph based on the model that contains the edge fields.  This may be overridden by setting 'graph_name' in the edge field definition.  Multiple edge definitions may be added to the same graph.
+There is no explicit field to support ArangoDB 'vertex' objects in Djarango.  Instead, every Django model in Djarango is implicitly an ArangoDB vertex.  In ArangoDB, everything is stored as a document at the lowest level.  Other ArangoDB storage paradigms are built on top of documents.  The Djarango integration stores all models as documents in ADB, so by default they are also candidates to be vertices.  When an edge field is added to any model, the model is then treated as a vertex.  In the ArangoDB backend, the collection for that model becomes a vertex collection, and an edge collection is created for the edge field that has been added to the model.  A graph is also created for the model and edge collections, and they are also added to the graph.  By convention, Djarango generates a name for the graph based on the model that contains the edge fields.  This may be overridden by setting 'graph_name' in the edge field definition.  Multiple edge definitions may be added to the same graph.
 
-    Djarango only allows 'outbound' edge fields.  An inbound edge is created by default on the model specified as the other end of the edge.  Bidirectional edges may be created by adding edge fields to both models and specifying the same edge name.
+Djarango only allows 'outbound' edge fields.  An inbound edge is created by default on the model specified as the other end of the edge.  Bidirectional edges may be created by adding edge fields to both models and specifying the same edge name.
 
-    Edge definitions are identified by name, and each edge definition name within a model must be unique.
+Edge definitions are identified by name, and each edge definition name within a model must be unique.
 
-    There is no direct example in Django documentation to create this type of Field definition.  It is probably closest to the ManyToManyField, but does not require actual creation of a 'through' table.
+There is no direct example in Django documentation to create this type of Field definition.  It is probably closest to the ManyToManyField, but does not require actual creation of a 'through' table.
 
-    In the general case, each model field maps to a DB column type.  The edge field case is a bit different, in that the field does not directly map to a single column.  Instead, the edge field definition triggers the creation of an edge collection (effectively a new table), that includes the Model collection as either a source or target vertex collection (or both).  The edge collection is created with from_ and to_ attributes, as are all ArangoDB edge collections.
+In the general case, each model field maps to a DB column type.  The edge field case is a bit different, in that the field does not directly map to a single column.  Instead, the edge field definition triggers the creation of an edge collection (effectively a new table), that includes the Model collection as either a source or target vertex collection (or both).  The edge collection is created with from_ and to_ attributes, as are all ArangoDB edge collections.
 
-    Djarango does not support explicit creation of 'graph' models; they are only created implicitly via the edge field definition.  Djarango does provide utilities for querying and displaying all graphs that have been generated by the addition of edge fields to various models.
+Djarango does not support explicit creation of 'graph' models; they are only created implicitly via the edge field definition.  Djarango does provide utilities for querying and displaying all graphs that have been generated by the addition of edge fields to various models.
 
-    Each edge field added to a model class definition must specify the model (vertex collection) on the other end of the edge; a.k.a., the 'target'.
+Each edge field added to a model class definition must specify the model (vertex collection) on the other end of the edge; a.k.a., the 'target'.
 
-    Djarango only allows outbound edges.  Inbound edges by definition are the other end of an outbound edge definition.  This avoids the possibility of mis-matched inbound/outbound/both edge definitions.
+Djarango only allows outbound edges.  Inbound edges by definition are the other end of an outbound edge definition.  This avoids the possibility of mis-matched inbound/outbound/both edge definitions.
 
     >>> What I think the EdgeField() needs to do:
     - migration
@@ -88,5 +87,4 @@ See edges.py for implementation of the edge fields.
     NOTES ON MAKEMIGRATIONS
     - autodetector.py does primary work of detecting new/deleted models and model changes
     - models with a FK relationship have a 'remote_field' attribute that holds info about the FK target.
-
 
