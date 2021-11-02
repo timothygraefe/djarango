@@ -4,7 +4,6 @@ See edges.py for implementation of the edge fields.
 
 
 # General Description of Edge Fields
-"""
     The EdgeField class implements the "Edge" Field definition for Django model classes.  The Edge field definition is used to add edge objects to Django models.  This in turn creates vertices and edges within the graph database backend for Django.  This is implemented for ArangoDB only.  The EdgeField class does not currently support other graph DB backends.
 
     There is no explicit field to support ArangoDB 'vertex' objects in Djarango.  Instead, every Django model in Djarango is implicitly an ArangoDB vertex.  In ArangoDB, everything is stored as a document at the lowest level.  Other ArangoDB storage paradigms are built on top of documents.  The Djarango integration stores all models as documents in ADB, so by default they are also candidates to be vertices.  When an edge field is added to any model, the model is then treated as a vertex.  In the ArangoDB backend, the collection for that model becomes a vertex collection, and an edge collection is created for the edge field that has been added to the model.  A graph is also created for the model and edge collections, and they are also added to the graph.  By convention, Djarango generates a name for the graph based on the model that contains the edge fields.  This may be overridden by setting 'graph_name' in the edge field definition.  Multiple edge definitions may be added to the same graph.
